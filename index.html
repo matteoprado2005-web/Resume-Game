@@ -175,6 +175,11 @@ body.touch #prompt kbd { display: none; } body.touch #prompt .tap { display: inl
 .mitem:hover { background: rgba(31,95,102,.1); }
 .mitem small { display: block; font-family: var(--fb); font-weight: 600; font-size: 12px; color: #7a6a5e; }
 .msub { display: flex; flex-direction: column; padding: 0 0 4px 12px; } .msub .mitem { font-size: 15px; color: var(--teal); padding: 7px 12px; }
+/* Teleport: a list of every billboard, in the menu */
+.tp { border-top: 2px dashed rgba(122,75,42,.35); margin-top: 6px; padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; }
+.tp label { font-family: var(--fh); font-weight: 600; font-size: 16px; color: var(--bbink); }
+.tp select { width: 100%; font: 600 14px var(--fb); color: var(--bbink); background: #fffaf2; border: 2px solid rgba(31,95,102,.45); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.tp select:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
 /* Achievements: a progress bar in the menu, the full list on demand, and a small confetti card when one unlocks */
 #menu .inner { max-height: calc(100vh - 90px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
 .ach { border-top: 2px dashed rgba(122,75,42,.35); margin-top: 6px; padding: 10px 12px 6px; display: flex; flex-direction: column; gap: 7px; }
@@ -270,9 +275,11 @@ body.touch #prompt kbd { display: none; } body.touch #prompt .tap { display: inl
     <a class="mitem" href="https://www.instagram.com/pradomatteo" target="_blank" rel="noopener">@pradomatteo</a>
     <a class="mitem" href="https://www.instagram.com/kubarshots" target="_blank" rel="noopener">@kubarshots</a>
   </div>
+  <div class="tp"><label for="tpSel">Teleport</label>
+    <select id="tpSel"><option value="">Choose a billboard…</option></select></div>
   <div class="ach" id="achBox">
-    <div class="head">Achievements <b id="achCount">0 / 15</b></div>
-    <div class="bar" role="progressbar" aria-label="Achievements unlocked" aria-valuemin="0" aria-valuemax="15" aria-valuenow="0" id="achBar"><i></i></div>
+    <div class="head">Achievements <b id="achCount">0 / 16</b></div>
+    <div class="bar" role="progressbar" aria-label="Achievements unlocked" aria-valuemin="0" aria-valuemax="16" aria-valuenow="0" id="achBar"><i></i></div>
     <button class="toggle" type="button" id="achToggle" aria-expanded="false" aria-controls="achList">Show all</button>
     <ul id="achList" hidden></ul>
   </div>
@@ -1619,6 +1626,17 @@ function buildVegetation() {
 // to draw. The only bare ground is the roads, the cleared pads, and a ring round each building. Meadows of taller grass
 // wander across it (and hide the treasure chests). Grass has its own random stream so the rest of the island is unchanged.
 const GRASS_TALL = (x, z) => smooth(0.52, 0.72, vnoise(x * 0.045 + 31, z * 0.045 - 17));
+// rocks taken out by hand after placement: [x, z, radius]. Hiding them uses no random draws, so nothing else on the island moves
+function removeRocks(spots) {
+  const Z = new THREE.Matrix4().makeScale(0, 0, 0), gone = [];
+  for (const im of CLEAR_IMS) {
+    if (!/^rock_/.test(im.userData.asset || '')) continue; let dirty = false;
+    im.userData.items.forEach((it, i) => { if (spots.some(([x, z, r]) => Math.hypot(it.x - x, it.z - z) < r)) { im.setMatrixAt(i, Z); it.gone = true; dirty = true; gone.push(it); } });
+    if (dirty) { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); }
+  }
+  for (const [k, l] of colGrid) colGrid.set(k, l.filter((c) => !gone.some((it) => Math.hypot(it.x - c.x, it.z - c.z) < 1.0)));
+  GRASS_STATS.rocksRemoved = gone.length;
+}
 function buildGrass() {
   const gr = mulberry32(5150), gx = (a, b) => a + (b - a) * gr();
   const list = [], STEP = 1.4;
@@ -2724,6 +2742,7 @@ async function boot() {
   buildTerrain(); buildWater(); buildSky();
   await step('Planting palms…', 72);
   buildVegetation();
+  removeRocks([[-79.7, 2.9, 6]]);
   await step('Growing the grass…', 80);
   buildGrass();
   await step('Lighting the torches…', 90);
@@ -2732,6 +2751,12 @@ async function boot() {
   try { await document.fonts.load('700 92px Fredoka'); await document.fonts.load('700 40px Nunito'); } catch (e) {}
   buildBillboards();
   buildTorches(); buildAmbient(); buildCar(); buildChests();
+  { // the teleport list: every billboard by its title, then where it stands
+    const seen = new Set(), sel = $('tpSel');
+    for (const b of BB) { const d = b.def; if (!d || !d.id || seen.has(d.id) || !b.spawn) continue; seen.add(d.id);
+      const o = document.createElement('option'); o.value = d.id; o.textContent = (d.title || d.id) + (b.statue && (!d.region || d.region === d.title) ? ' · Contact statue' : d.region ? ' · ' + d.region : ''); sel.appendChild(o); }
+    sel.addEventListener('change', () => { const id = sel.value; if (!id) return; toggleMenu(false); goTo(id); sel.value = ''; sel.blur(); });
+  }
   world.traverse((o) => { if (!o.isMesh) return; const k = o.userData.kit || '', mn = o.material && o.material.name || '';
     if (k === 'grass_clump' || k === 'bush' || /grass_card|leaf_twig/.test(mn)) grassLightPatch(o.material);
     if (/^(palm|broadleaf|bush|rock_)/.test(k) || /^cliff_/.test(k) || /^TW_(rock|moss_Rock_Moss|leaf_twig|grass_card)$/.test(mn)) ditherPatch(o.material); });
@@ -2862,11 +2887,11 @@ function caveLighting(dt) {
 // Their spots come from their own random stream, so they never move between visits; which ones are open is kept in this browser.
 const CHESTS = [];
 let chestsOpen = [];
-try { chestsOpen = JSON.parse(localStorage.getItem('tidewind-chests') || '[]'); } catch (e) {}
+try { chestsOpen = JSON.parse(localStorage.getItem('tidewind-chests-v2') || '[]'); } catch (e) {}
 function buildChests() {
   const cr = mulberry32(90210);
   const cover = [];   // trees, palms, bushes and rocks: what a chest hides beside
-  for (const im of CLEAR_IMS) { const a = im.userData.asset || ''; if (/grass/.test(a)) continue; const w = /rock/.test(a) ? 1.3 : /bush/.test(a) ? 0.8 : 1; for (const it of im.userData.items) if (it.y > 0.8) cover.push({ x: it.x, z: it.z, w }); }
+  for (const im of CLEAR_IMS) { const a = im.userData.asset || ''; if (/grass/.test(a)) continue; const w = /rock/.test(a) ? 1.3 : /bush/.test(a) ? 0.8 : 1; for (const it of im.userData.items) if (it.y > 0.8 && !it.gone) cover.push({ x: it.x, z: it.z, w }); }
   const free = (x, z, r) => !nearColliders(x, z).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + r);
   // the run from the spot back to the road: walk downhill in road distance, every step on gentle, open ground
   const reachable = (x, z) => {
@@ -2930,7 +2955,7 @@ function chestTick(dt, t) {
     if (d < 28 && (c.glint -= dt) < 0) { c.glint = 1.2 + Math.random() * 1.8; emit(c.x + (Math.random() - 0.5) * 0.6, c.y + 0.75, c.z + (Math.random() - 0.5) * 0.4, 0, 0.6, 0, '#fff1b0', 0.22, 0.7, 0.2); }
     if (d < 2.6 && Math.abs(car.p.y - c.y) < 2.5) {
       c.open = true; c.t = 0; chestsOpen.push(c.i);
-      try { localStorage.setItem('tidewind-chests', JSON.stringify(chestsOpen)); } catch (e) {}
+      try { localStorage.setItem('tidewind-chests-v2', JSON.stringify(chestsOpen)); } catch (e) {}
       chime();
       for (let k = 0; k < 50; k++) { const a = Math.random() * 6.28, s = 1 + Math.random() * 3.5; emit(c.x, c.y + 0.7, c.z, Math.cos(a) * s, 3 + Math.random() * 6, Math.sin(a) * s, k % 4 ? '#ffd35a' : '#fff6d0', 0.12 + Math.random() * 0.14, 0.9 + Math.random() * 0.8, -0.2); }
       const n = CHESTS.filter((q) => q.open).length;
