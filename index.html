@@ -953,6 +953,18 @@ const uTime = { value: 0 }, uCar = { value: new V3(0, -100, 0) };
 // and the buggy. uSee.xyz is the buggy, uSee.w switches it on while driving. The fragment's world position comes from the
 // view-space position every lit material already carries, so this sits on top of any other shader patch.
 const uSee = { value: new THREE.Vector4(0, -100, 0, 0) };
+// grass lights as soft, even ground cover: every blade, front or back, takes the light as if it faced the sky, so the sun
+// and moon (and the shadows they cast) do the shading instead of the cards' own facing turning whole clumps black
+function grassLightPatch(m) {
+  if (!m || m.userData.grassLit) return; m.userData.grassLit = true;
+  const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
+  m.onBeforeCompile = function (sh, r) {
+    if (prev) prev.call(this, sh, r);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n normal = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);');
+  };
+  m.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|glit'; };
+  m.needsUpdate = true;
+}
 function ditherPatch(m) {
   if (!m || m.userData.dither || !(m.isMeshStandardMaterial || m.isMeshPhysicalMaterial)) return; m.userData.dither = true;
   const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
@@ -2716,6 +2728,7 @@ async function boot() {
   buildBillboards();
   buildTorches(); buildAmbient(); buildCar(); buildChests();
   world.traverse((o) => { if (!o.isMesh) return; const k = o.userData.kit || '', mn = o.material && o.material.name || '';
+    if (k === 'grass_clump' || k === 'bush' || /grass_card|leaf_twig/.test(mn)) grassLightPatch(o.material);
     if (/^(palm|broadleaf|bush|rock_)/.test(k) || /^cliff_/.test(k) || /^TW_(rock|moss_Rock_Moss|leaf_twig|grass_card)$/.test(mn)) ditherPatch(o.material); });
   for (const o of ORBS) if (collected.has(o.region)) collectOrb(o, true);
   if (collected.size === 8) showFinale();
