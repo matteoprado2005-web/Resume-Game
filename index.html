@@ -925,8 +925,8 @@ for (let s0 = -0.5; s0 < CAVE.L - 0.5; s0 += 4) {
 /* ============================================================ renderer */
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-let pixelRatio = window.__testPR || Math.min(devicePixelRatio, isTouch ? 1.2 : 1.5);
-const GFX = { minPR: 0.7 };
+let pixelRatio = window.__testPR || Math.min(devicePixelRatio, isTouch ? 1.2 : 1.25);
+const GFX = { minPR: 0.7, maxPR: pixelRatio };
 try { localStorage.removeItem('tidewind-graphics'); } catch (e) {}
 renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -941,7 +941,7 @@ const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.3, 25
 const SUN_DIR = new V3(-0.86, 0.17, 0.33).normalize();   // direction of the light that casts shadows (sun by day, moon by night)
 const SKY_SUN = new V3(-0.86, 0.17, 0.33).normalize(), SKY_MOON = new V3(0.86, -0.17, -0.33).normalize();
 const sun = new THREE.DirectionalLight('#ffb27a', 3.4);
-sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.layers.enable(1);   // layer 1: shadow-only stand-ins
 Object.assign(sun.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55, near: 1, far: 320 });
 sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.05;
 scene.add(sun, sun.target);
@@ -1007,6 +1007,8 @@ function windPatch(mat, amount, grass = false) {
       wp.x += sw * hf * hf * ${amount.toFixed(4)};
       wp.z += sw * hf * hf * ${(amount * 0.6).toFixed(4)};
       ${grass ? `
+      float keep = 1.0 - smoothstep(48.0, 62.0, distance(org.xz, cameraPosition.xz));   // far grass shrinks away: only a few pixels tall out there
+      wp.xyz = org.xyz + (wp.xyz - org.xyz) * keep;
       vec2 dc = wp.xz - uCar.xz; float dd = length(dc);
       float push = (1.0 - smoothstep(0.3, 2.2, dd)) * hf * step(abs(org.y - uCar.y), 2.5);
       wp.xz += dc / (dd + 0.001) * push * 0.9; wp.y -= push * 0.4;` : ''}
@@ -1106,7 +1108,7 @@ function instanceAsset(name, list, { shadow = true, chunk = 70 } = {}) {
 }
 const BATCH = {};
 function batch(name, x, y, z, ry = 0, s = 1) { (BATCH[name] ||= []).push({ x, y, z, ry, s }); }
-function flushBatches() { for (const [n, l] of Object.entries(BATCH)) instanceAsset(n, l, { chunk: 1000 }); }
+function flushBatches() { for (const [n, l] of Object.entries(BATCH)) instanceAsset(n, l, { chunk: 1000, shadow: !/crate|barrel|lantern|fence/.test(n) }); }   // small props: their shadows are a few pixels
 function placeClone(name, x, y, z, ry = 0, s = 1) {
   const o = A[name].scene.clone(true);
   o.position.set(x, y, z); o.rotation.y = ry; o.scale.setScalar(s);
@@ -1439,8 +1441,10 @@ function buildCliffs() {
       const lod = new THREE.LOD(); lod.position.copy(c);
       for (const [nm, dist] of [[name, 0], [name + '_lod', 150]]) {
         if (!A[nm]) continue; const grp = new THREE.Group(); grp.position.copy(c).negate();
-        for (const p of A[nm].parts) { expand(p.geo); const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx); m.castShadow = true; m.receiveShadow = true; grp.add(m); }
+        for (const p of A[nm].parts) { expand(p.geo); const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx); m.castShadow = false; m.receiveShadow = true; grp.add(m); }
         lod.addLevel(grp, dist);
+        // the sun's shadow is cast by the light copy of the section, seen only by the shadow camera (layer 1)
+        if (dist > 0) for (const p of A[nm].parts) { const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx); m.castShadow = true; m.receiveShadow = false; m.layers.set(1); world.add(m); }
       }
       world.add(lod); stats.wallSections = (stats.wallSections || 0) + 1;
     }
@@ -1771,7 +1775,7 @@ function buildTorches() {
   });
   const flames = new THREE.Points(fg, fm); flames.frustumCulled = false; world.add(flames);
   // pooled real lights that follow the nearest torches
-  const POOL = window.__testLights ?? (isTouch ? 5 : 8);
+  const POOL = window.__testLights ?? (isTouch ? 3 : 4);   // every lit pixel pays for every light, so only the nearest few are real lights
   const lights = [];
   for (let i = 0; i < POOL; i++) { const l = new THREE.PointLight('#ff9a48', 0, 16, 1.6); scene.add(l); lights.push(l); }
   let tAcc = 1;
@@ -1780,9 +1784,10 @@ function buildTorches() {
     if (tAcc > 0.25) {
       tAcc = 0;
       const c = camTarget; const sorted = TORCHES.map((q, i) => [(q.x - c.x) ** 2 + (q.z - c.z) ** 2 + (q.y - c.y) ** 2 * 0.5, i]).sort((a, b) => a[0] - b[0]);
-      lights.forEach((l, k) => { const q = TORCHES[sorted[k][1]]; l.position.set(q.x, q.y + 0.35, q.z); l.userData.base = q.big ? 34 : q.tiki ? 22 : q.cave ? 34 : 14; l.userData.ph = sorted[k][1]; });
+      lights.forEach((l, k) => { const q = TORCHES[sorted[k][1]]; if (!q) return; l.position.set(q.x, q.y + (q.moon ? 0 : 0.35), q.z); l.userData.base = q.moon ? 18 : q.big ? 34 : q.tiki ? 22 : q.cave ? 34 : 14; l.userData.ph = sorted[k][1]; l.userData.moon = !!q.moon;
+        l.color.set(q.moon ? '#9cc8ff' : '#ff9a48'); l.distance = q.moon ? 26 : 16; l.decay = q.moon ? 1.4 : 1.6; });
     }
-    for (const l of lights) l.intensity = (l.userData.base || 0) * (0.85 + 0.15 * Math.sin(t * 11 + l.userData.ph) * Math.sin(t * 7.3 + l.userData.ph * 2));
+    for (const l of lights) l.intensity = (l.userData.base || 0) * (l.userData.moon ? 1 : 0.85 + 0.15 * Math.sin(t * 11 + l.userData.ph) * Math.sin(t * 7.3 + l.userData.ph * 2));
   });
 }
 
@@ -1909,7 +1914,7 @@ function buildTemple() {
   const [ox, oz] = rot(0.6 * SS, 0);
   const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 2.6, 3.4), toneMapped: false }));
   orb.position.set(ox, top + 0.95, oz); world.add(orb); caveAnim.orb = orb;
-  const moon = new THREE.PointLight('#9cc8ff', 18, 26, 1.4); moon.position.set(C.x, top + 3, C.z); scene.add(moon); caveAnim.moon = moon;
+  TORCHES.push({ x: C.x, y: top + 3, z: C.z, moon: true });   // the moon's glow is one of the shared torch lights when you're near
   animated.push((dt, t) => {
     caveAnim.water.offset.set(t * 0.02, -t * 0.25);
     orb.position.y = top + 0.95 + Math.sin(t * 1.6) * 0.12; orb.rotation.y += dt * 0.6;
@@ -2092,7 +2097,7 @@ function boardTorches() {
   const big = [];
   for (let i = spots.length - 1; i >= 0; i--) { const t = { x: spots[i][0], z: spots[i][1] }; if (keepOffRoad(t)) spots[i] = [t.x, t.z]; else spots.splice(i, 1); }
   for (const [x, z] of spots) { const y = groundAt(x, z); big.push({ x, y, z, ry: rr(0, 6.28), s: 1.6 }); TORCHES.push({ x, y: y + 2.38 * 1.6, z, flame: 1.6, big: true }); addCollider(x, z, 0.35, y + 4); }
-  instanceAsset('tiki_torch_tribal', big, { shadow: true, chunk: 1000 });
+  instanceAsset('tiki_torch_tribal', big, { shadow: false, chunk: 1000 });
   // after dark the carved icons glow softly so the statues stay easy to spot
   for (const name of ['statue_linkedin', 'statue_instagram', 'statue_phone', 'statue_email', 'statue_spotify']) for (const p of (A[name] && A[name].parts) || []) {
     const m = p.mat; if (!/statue_carve/.test(m.name || '') || STATUE_GLOW.includes(m)) continue;
@@ -2287,8 +2292,8 @@ function buildCar() {
   const body = A.jeep_body.scene.clone(true); body.position.y = -0.73;
   body.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   carVisual.add(body);
-  for (const z of [-0.5, 0.5]) {
-    const s = new THREE.SpotLight('#ffe2b0', 40, 34, 0.5, 0.55, 1.3); s.position.set(1.42, 0.1, z); s.target.position.set(8, -1.2, z * 2);
+  { // one beam from between the two lamps, as wide as the pair was
+    const s = new THREE.SpotLight('#ffe2b0', 72, 34, 0.68, 0.6, 1.3); s.position.set(1.42, 0.1, 0); s.target.position.set(8, -1.2, 0);
     carVisual.add(s, s.target); headlights.push(s);
   }
   scene.add(carVisual);
@@ -2477,7 +2482,7 @@ let playing = false, drag = null, introT = 1;
 canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') return; drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); canvas.focus(); });
 canvas.addEventListener('pointermove', (e) => { if (!drag) return; cam.yawT -= (e.clientX - drag.x) * 0.005; cam.pitchT = clamp(cam.pitchT + (e.clientY - drag.y) * 0.004, 0.15, 1.35); drag = { x: e.clientX, y: e.clientY }; cam.idle = 0; });
 canvas.addEventListener('pointerup', () => (drag = null));
-canvas.addEventListener('wheel', (e) => { e.preventDefault(); cam.distT = clamp(cam.distT * (1 + Math.sign(e.deltaY) * 0.1), 8, 80); }, { passive: false });
+canvas.addEventListener('wheel', (e) => { e.preventDefault(); cam.distT = clamp(cam.distT * (1 + Math.sign(e.deltaY) * 0.1), 8, 60); }, { passive: false });
 
 function updateCamera(dt, t) {
   if (!playing) {
@@ -2788,7 +2793,8 @@ function frame() {
   frames++; ftAcc += dt;
   if (ftAcc > 2.5) {
     const avg = ftAcc / frames;
-    if (avg > 1 / 38 && pixelRatio > GFX.minPR) { pixelRatio = Math.max(GFX.minPR, pixelRatio - 0.2); applyPixelRatio(); }
+    if (avg > 1 / 38 && pixelRatio > GFX.minPR) { pixelRatio = Math.max(GFX.minPR, pixelRatio - 0.15); applyPixelRatio(); }
+    else if (avg < 1 / 55 && pixelRatio < GFX.maxPR - 0.01) { pixelRatio = Math.min(GFX.maxPR, pixelRatio + 0.1); applyPixelRatio(); }   // and sharpens again when there's room
     frames = 0; ftAcc = 0;
   }
 }
@@ -2890,7 +2896,7 @@ function buildChests() {
     CHESTS.push(c);
   }
   // the chest: a wooden box with a rounded lid, iron bands and a gold lock
-  const wood = new THREE.MeshStandardMaterial({ color: '#7a4a26', roughness: 0.85 }), iron = new THREE.MeshStandardMaterial({ color: '#3b3a38', roughness: 0.5, metalness: 0.7 });
+  const wood = new THREE.MeshStandardMaterial({ color: '#7a4a26', roughness: 0.85, side: THREE.DoubleSide }), iron = new THREE.MeshStandardMaterial({ color: '#3b3a38', roughness: 0.5, metalness: 0.7, side: THREE.DoubleSide });   // both sides: the open lid shows its inside
   const gold = new THREE.MeshStandardMaterial({ color: '#e7b94a', roughness: 0.3, metalness: 1, emissive: '#5a3c08', emissiveIntensity: 0.6 });
   const coins = new THREE.MeshStandardMaterial({ color: '#ffd35a', roughness: 0.25, metalness: 1, emissive: '#c08a10', emissiveIntensity: 1.2 });
   const W = 0.95, D = 0.62, Hb = 0.5;
@@ -2898,15 +2904,18 @@ function buildChests() {
     const y = heightAt(c.x, c.z), g = new THREE.Group(); g.position.set(c.x, y - 0.04, c.z);
     let best = 0, bd = 1e9; for (let a = 0; a < 6.28; a += 0.3) { const d = pathDist(c.x + Math.sin(a) * 3, c.z + Math.cos(a) * 3); if (d < bd) { bd = d; best = a; } }
     g.rotation.y = best;                                   // the lock faces the way the buggy comes in
-    const add = (geo, mat, x, yy, z, par = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, yy, z); m.castShadow = true; m.receiveShadow = true; par.add(m); return m; };
-    add(new THREE.BoxGeometry(W, Hb, D), wood, 0, Hb / 2, 0);
-    add(new THREE.BoxGeometry(W * 0.9, 0.05, D * 0.85), coins, 0, Hb - 0.03, 0);
-    for (const bx of [-W * 0.34, W * 0.34]) add(new THREE.BoxGeometry(0.07, Hb + 0.01, D + 0.02), iron, bx, Hb / 2, 0);
+    // pieces are merged per material: three meshes for the box, three for the lid
+    const parts = new Map(), put = (key, geo, x, yy, z) => { geo.translate(x, yy, z); if (!parts.has(key)) parts.set(key, []); parts.get(key).push(geo); };
+    put('body|wood', new THREE.BoxGeometry(W, Hb, D), 0, Hb / 2, 0);
+    put('body|coins', new THREE.BoxGeometry(W * 0.86, 0.06, D * 0.8), 0, Hb + 0.02, 0);   // the gold heaped at the top, seen once the lid opens
+    for (const bx of [-W * 0.34, W * 0.34]) put('body|iron', new THREE.BoxGeometry(0.07, Hb + 0.01, D + 0.02), bx, Hb / 2, 0);
     const lid = new THREE.Group(); lid.position.set(0, Hb, -D / 2); g.add(lid);
     const shell = new THREE.CylinderGeometry(D / 2, D / 2, W, 14, 1, false, 0, Math.PI); shell.rotateZ(Math.PI / 2); shell.rotateX(Math.PI / 2);
-    add(shell, wood, 0, 0, D / 2, lid);
-    for (const bx of [-W * 0.34, W * 0.34]) { const b = new THREE.CylinderGeometry(D / 2 + 0.02, D / 2 + 0.02, 0.07, 14, 1, false, 0, Math.PI); b.rotateZ(Math.PI / 2); b.rotateX(Math.PI / 2); add(b, iron, bx, 0, D / 2, lid); }
-    add(new THREE.BoxGeometry(0.16, 0.2, 0.06), gold, 0, 0.0, D + 0.02, lid);
+    put('lid|wood', shell, 0, 0, D / 2);
+    for (const bx of [-W * 0.34, W * 0.34]) { const b = new THREE.CylinderGeometry(D / 2 + 0.02, D / 2 + 0.02, 0.07, 14, 1, false, 0, Math.PI); b.rotateZ(Math.PI / 2); b.rotateX(Math.PI / 2); put('lid|iron', b, bx, 0, D / 2); }
+    put('lid|gold', new THREE.BoxGeometry(0.16, 0.2, 0.06), 0, 0, D + 0.02);
+    const MATS = { wood, iron, gold, coins };
+    for (const [key, geos] of parts) { const [where, mn] = key.split('|'); const m = new THREE.Mesh(geos.length > 1 ? mergeGeometries(geos) : geos[0], MATS[mn]); m.castShadow = mn === 'wood'; m.receiveShadow = true; (where === 'lid' ? lid : g).add(m); }
     world.add(g); addCollider(c.x, c.z, 0.55, y + 0.8); clearArea([[c.x, c.z]], 1.1);   // grass and leaves stand round the chest, not through it
     Object.assign(c, { i, g, lid, y, open: chestsOpen.includes(i), t: 0, glint: Math.random() * 2 });
     if (c.open) lid.rotation.x = -1.6;
@@ -3066,8 +3075,9 @@ function gameLogic(dt, t) {
   if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').classList.remove('show'); }
   updateBoardPrompt();
   if (respawning <= 0) { achTick(dt); chestTick(dt, t); }
-  drawMap();
+  if ((mapT += dt) > 1 / 15) { mapT = 0; drawMap(); }   // the minimap is redrawn 15 times a second, plenty for a dot on a map
 }
+let mapT = 1;
 
 boot().catch((e) => { console.error(e); $('loadMsg').textContent = 'Something went wrong while building the island. Reload to try again.'; });
 frame();
