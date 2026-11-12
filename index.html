@@ -429,7 +429,11 @@ if (isTouch) document.body.classList.add('touch');
 
 /* ============================================================ helpers */
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-const rand = mulberry32(73021);
+// the island's random stream (mulberry32). Its state after n draws is seed + n * 0x6D2B79F5, so randAt(n) can jump to any point:
+// the cliff wall is baked from the stream as it stands when the cliffs are laid, so that step always starts from the same draw
+let RS = 73021, RN = 0;
+const rand = () => { RN++; RS |= 0; RS = (RS + 0x6D2B79F5) | 0; let t = Math.imul(RS ^ (RS >>> 15), 1 | RS); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const randAt = (n) => { RS = (73021 + Math.imul(n, 0x6D2B79F5)) | 0; RN = n; };
 const rr = (a, b) => a + (b - a) * rand();
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -945,6 +949,32 @@ const hemi = new THREE.HemisphereLight('#a39ad0', '#6b5038', 1.5); scene.add(hem
 const fill = new THREE.DirectionalLight('#8a95e0', 0.6); fill.position.set(0.6, 0.5, -0.6); scene.add(fill);
 
 const uTime = { value: 0 }, uCar = { value: new V3(0, -100, 0) };
+// see-through: trees, bushes, rocks and the cliff wall dissolve in an ordered dither wherever they come between the camera
+// and the buggy. uSee.xyz is the buggy, uSee.w switches it on while driving. The fragment's world position comes from the
+// view-space position every lit material already carries, so this sits on top of any other shader patch.
+const uSee = { value: new THREE.Vector4(0, -100, 0, 0) };
+function ditherPatch(m) {
+  if (!m || m.userData.dither || !(m.isMeshStandardMaterial || m.isMeshPhysicalMaterial)) return; m.userData.dither = true;
+  const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
+  m.onBeforeCompile = function (sh, r) {
+    if (prev) prev.call(this, sh, r);
+    sh.uniforms.uSee = uSee;
+    sh.fragmentShader = 'uniform vec4 uSee;\n' + sh.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      if (uSee.w > 0.5) {
+        vec3 wPos = transpose(mat3(viewMatrix)) * (-vViewPosition - viewMatrix[3].xyz);
+        vec3 seg = uSee.xyz - cameraPosition;
+        float tt = clamp(dot(wPos - cameraPosition, seg) / max(dot(seg, seg), 1e-4), 0.0, 1.0);
+        float dd = length(wPos - cameraPosition - seg * tt);
+        float rad = mix(1.1, 2.7, tt);
+        float fade = (1.0 - smoothstep(rad * 0.5, rad, dd)) * smoothstep(0.97, 0.88, tt) * smoothstep(0.02, 0.1, tt);
+        const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+        ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));
+        if (fade * 0.9 > (BAYER[q.x + q.y * 4] + 0.5) / 16.0) discard;
+      }`);
+  };
+  m.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|see'; };
+  m.needsUpdate = true;
+}
 
 function windPatch(mat, amount, grass = false) {
   mat.onBeforeCompile = (sh) => {
@@ -1569,19 +1599,29 @@ function buildVegetation() {
   instanceAsset('rock_sea_stack', stacks);
 }
 
+// The island top is carpeted: big, long clumps on a jittered grid, so the ground reads as one meadow with far fewer clumps
+// to draw. The only bare ground is the roads, the cleared pads, and a ring round each building. Meadows of taller grass
+// wander across it (and hide the treasure chests). Grass has its own random stream so the rest of the island is unchanged.
+const GRASS_TALL = (x, z) => smooth(0.52, 0.72, vnoise(x * 0.045 + 31, z * 0.045 - 17));
 function buildGrass() {
-  const list = []; const target = isTouch ? 9000 : 20000;
+  const gr = mulberry32(5150), gx = (a, b) => a + (b - a) * gr();
+  const list = [], STEP = 1.4;
   const cA = new THREE.Color('#c8d890'), cB = new THREE.Color('#f0d890'), cC = new THREE.Color('#a8c07a');
-  for (let tries = 0; tries < target * 6 && list.length < target; tries++) {
-    const x = rr(-90, 90), z = rr(-90, 90), h = heightAt(x, z);
-    if (h < 1.6 || slopeNY(x, z) < 0.82 || pathDist(x, z) < 3.6 || nogoAt(x, z)) continue;
-    if (PADS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r)) continue;
-    const n = vnoise(x * 0.09, z * 0.09); if (n < 0.35 && rand() < 0.7) continue;
-    const c = cC.clone().lerp(cA, rand()).lerp(cB, smooth(0.5, 0.9, vnoise(x * 0.04 + 9, z * 0.04)) * 0.7);
-    list.push({ x, y: h - 0.05, z, s: rr(0.7, 1.25), ry: rr(0, 6.28), tint: c });
+  const buildings = [];
+  for (const l of colGrid.values()) for (const c of l) if (c.r >= 2 && !buildings.includes(c)) buildings.push(c);
+  for (let z = -92; z <= 92; z += STEP) for (let x = -92; x <= 92; x += STEP) {
+    const px = x + gx(-0.45, 0.45) * STEP, pz = z + gx(-0.45, 0.45) * STEP, h = heightAt(px, pz);
+    if (h < 1.6 || slopeNY(px, pz) < 0.8 || pathDist(px, pz) < 3.5 || nogoAt(px, pz) || deckAt(px, pz) > -50) continue;
+    if (PADS.some((p) => Math.hypot(px - p.x, pz - p.z) < p.r)) continue;
+    if (buildings.some((c) => Math.hypot(px - c.x, pz - c.z) < c.r + 1.6)) continue;
+    const tall = GRASS_TALL(px, pz), s = gx(2.3, 3.0);
+    const c = cC.clone().lerp(cA, gr()).lerp(cB, smooth(0.5, 0.9, vnoise(px * 0.04 + 9, pz * 0.04)) * 0.7);
+    list.push({ x: px, y: h - 0.05, z: pz, sx: s * gx(0.9, 1.15), sz: s * gx(0.9, 1.15), sy: gx(1.25, 1.55) + tall * gx(0.5, 0.75), ry: gx(0, 6.28), tint: c });
   }
+  GRASS_STATS.clumps = list.length;
   instanceAsset('grass_clump', list, { shadow: false, chunk: 80 });
 }
+const GRASS_STATS = {};
 
 /* ============================================================ structures */
 const ORBS = [], boats = [], TORCHES = [];
@@ -2670,11 +2710,13 @@ async function boot() {
   await step('Growing the grass…', 80);
   buildGrass();
   await step('Lighting the torches…', 90);
-  buildDocks(); buildBridge(); buildLandmarks(); buildFences(); flushBatches(); buildCliffs(); buildTemple();
+  buildDocks(); buildBridge(); buildLandmarks(); buildFences(); flushBatches(); randAt(238411); buildCliffs(); buildTemple();
   moveLanternOrb(); buildOrbs();
   try { await document.fonts.load('700 92px Fredoka'); await document.fonts.load('700 40px Nunito'); } catch (e) {}
   buildBillboards();
-  buildTorches(); buildAmbient(); buildCar();
+  buildTorches(); buildAmbient(); buildCar(); buildChests();
+  world.traverse((o) => { if (!o.isMesh) return; const k = o.userData.kit || '', mn = o.material && o.material.name || '';
+    if (/^(palm|broadleaf|bush|rock_)/.test(k) || /^cliff_/.test(k) || /^TW_(rock|moss_Rock_Moss|leaf_twig|grass_card)$/.test(mn)) ditherPatch(o.material); });
   for (const o of ORBS) if (collected.has(o.region)) collectOrb(o, true);
   if (collected.size === 8) showFinale();
   refreshOrbHud();
@@ -2683,7 +2725,7 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; } };
+  window.__dbg = { GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; } };
 }
 
 const clock = new THREE.Clock();
@@ -2713,6 +2755,7 @@ function frame() {
     for (const f of animated) f(dt, t);
   }
   updateCamera(dt, t);
+  if (carVisual) uSee.value.set(carVisual.position.x, carVisual.position.y + 0.7, carVisual.position.z, playing && !window.__camOverride ? 1 : 0);
   dayNight(dt);
   if (window.__camOverride) { const o = window.__camOverride; camera.position.set(o[0], o[1], o[2]); camera.lookAt(o[3], o[4], o[5]); }
   caveLighting(dt);
@@ -2793,6 +2836,88 @@ function caveLighting(dt) {
   scene.fog.color.copy(FOG).lerp(CAVE_FOG, k); scene.fog.near = lerp(90, 10, k); scene.fog.far = lerp(460, 85, k);
 }
 
+
+/* ============================================================ treasure chests */
+// Ten chests hidden off the roads: in the tall grass, among clumps of trees and by the rocks. Every one is reachable in the
+// buggy (a clear, gentle run from the nearest road). Drive up to one to open it; all ten earn the Treasure Hunter title.
+// Their spots come from their own random stream, so they never move between visits; which ones are open is kept in this browser.
+const CHESTS = [];
+let chestsOpen = [];
+try { chestsOpen = JSON.parse(localStorage.getItem('tidewind-chests') || '[]'); } catch (e) {}
+function buildChests() {
+  const cr = mulberry32(90210);
+  const cover = [];   // trees, palms, bushes and rocks: what a chest hides beside
+  for (const im of CLEAR_IMS) { const a = im.userData.asset || ''; if (/grass/.test(a)) continue; const w = /rock/.test(a) ? 1.3 : /bush/.test(a) ? 0.8 : 1; for (const it of im.userData.items) if (it.y > 0.8) cover.push({ x: it.x, z: it.z, w }); }
+  const free = (x, z, r) => !nearColliders(x, z).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + r);
+  // the run from the spot back to the road: walk downhill in road distance, every step on gentle, open ground
+  const reachable = (x, z) => {
+    for (let k = 0; k < 80; k++) {
+      const pd = pathDist(x, z); if (pd < 3.2) return true;
+      const e = 0.4, gx = pathDist(x + e, z) - pathDist(x - e, z), gz = pathDist(x, z + e) - pathDist(x, z - e), gl = Math.hypot(gx, gz) || 1;
+      x -= gx / gl * 0.5; z -= gz / gl * 0.5;
+      if (heightAt(x, z) < 0.6 || slopeNY(x, z) < 0.8 || nogoAt(x, z) || !free(x, z, 1.1)) return false;
+    }
+    return false;
+  };
+  const cand = [];
+  for (let z = -90; z <= 90; z += 2) for (let x = -90; x <= 90; x += 2) {
+    const px = x + (cr() - 0.5) * 1.6, pz = z + (cr() - 0.5) * 1.6, h = heightAt(px, pz), pd = pathDist(px, pz);
+    if (h < 1.6 || pd < 6 || pd > 24 || slopeNY(px, pz) < 0.88 || nogoAt(px, pz) || deckAt(px, pz) > -50) continue;
+    if (PADS.some((p) => Math.hypot(px - p.x, pz - p.z) < p.r + 4) || Math.hypot(px - SPAWN.x, pz - SPAWN.z) < 25) continue;
+    if (CAVE && Math.abs(caveLocal(px, pz)[1]) < 8 && caveLocal(px, pz)[0] > -6 && caveLocal(px, pz)[0] < CAVE.L + 6) continue;
+    if (!free(px, pz, 1.4)) continue;
+    let sc = 0; for (const c of cover) { const d = Math.hypot(c.x - px, c.z - pz); if (d < 7) sc += c.w * (1 - d / 9); }
+    sc += GRASS_TALL(px, pz) * 3 + Math.min(pd, 16) * 0.06 + cr() * 0.8;
+    if (sc >= 3) cand.push({ x: px, z: pz, sc });
+  }
+  cand.sort((a, b) => b.sc - a.sc);
+  for (const c of cand) {
+    if (CHESTS.length >= 10) break;
+    if (CHESTS.some((o) => Math.hypot(o.x - c.x, o.z - c.z) < 30) || !reachable(c.x, c.z)) continue;
+    CHESTS.push(c);
+  }
+  // the chest: a wooden box with a rounded lid, iron bands and a gold lock
+  const wood = new THREE.MeshStandardMaterial({ color: '#7a4a26', roughness: 0.85 }), iron = new THREE.MeshStandardMaterial({ color: '#3b3a38', roughness: 0.5, metalness: 0.7 });
+  const gold = new THREE.MeshStandardMaterial({ color: '#e7b94a', roughness: 0.3, metalness: 1, emissive: '#5a3c08', emissiveIntensity: 0.6 });
+  const coins = new THREE.MeshStandardMaterial({ color: '#ffd35a', roughness: 0.25, metalness: 1, emissive: '#c08a10', emissiveIntensity: 1.2 });
+  const W = 0.95, D = 0.62, Hb = 0.5;
+  CHESTS.forEach((c, i) => {
+    const y = heightAt(c.x, c.z), g = new THREE.Group(); g.position.set(c.x, y - 0.04, c.z);
+    let best = 0, bd = 1e9; for (let a = 0; a < 6.28; a += 0.3) { const d = pathDist(c.x + Math.sin(a) * 3, c.z + Math.cos(a) * 3); if (d < bd) { bd = d; best = a; } }
+    g.rotation.y = best;                                   // the lock faces the way the buggy comes in
+    const add = (geo, mat, x, yy, z, par = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, yy, z); m.castShadow = true; m.receiveShadow = true; par.add(m); return m; };
+    add(new THREE.BoxGeometry(W, Hb, D), wood, 0, Hb / 2, 0);
+    add(new THREE.BoxGeometry(W * 0.9, 0.05, D * 0.85), coins, 0, Hb - 0.03, 0);
+    for (const bx of [-W * 0.34, W * 0.34]) add(new THREE.BoxGeometry(0.07, Hb + 0.01, D + 0.02), iron, bx, Hb / 2, 0);
+    const lid = new THREE.Group(); lid.position.set(0, Hb, -D / 2); g.add(lid);
+    const shell = new THREE.CylinderGeometry(D / 2, D / 2, W, 14, 1, false, 0, Math.PI); shell.rotateZ(Math.PI / 2); shell.rotateX(Math.PI / 2);
+    add(shell, wood, 0, 0, D / 2, lid);
+    for (const bx of [-W * 0.34, W * 0.34]) { const b = new THREE.CylinderGeometry(D / 2 + 0.02, D / 2 + 0.02, 0.07, 14, 1, false, 0, Math.PI); b.rotateZ(Math.PI / 2); b.rotateX(Math.PI / 2); add(b, iron, bx, 0, D / 2, lid); }
+    add(new THREE.BoxGeometry(0.16, 0.2, 0.06), gold, 0, 0.0, D + 0.02, lid);
+    world.add(g); addCollider(c.x, c.z, 0.55, y + 0.8); clearArea([[c.x, c.z]], 1.1);   // grass and leaves stand round the chest, not through it
+    Object.assign(c, { i, g, lid, y, open: chestsOpen.includes(i), t: 0, glint: Math.random() * 2 });
+    if (c.open) lid.rotation.x = -1.6;
+  });
+  window.__chests = CHESTS;
+}
+function chestTick(dt, t) {
+  for (const c of CHESTS) {
+    if (c.open) { if (c.t < 1) { c.t = Math.min(1, c.t + dt * 1.6); c.lid.rotation.x = -1.6 * (1 - (1 - c.t) ** 3); } continue; }
+    const d = Math.hypot(car.p.x - c.x, car.p.z - c.z);
+    // a glint now and then gives away a closed chest, but only from nearby
+    if (d < 28 && (c.glint -= dt) < 0) { c.glint = 1.2 + Math.random() * 1.8; emit(c.x + (Math.random() - 0.5) * 0.6, c.y + 0.75, c.z + (Math.random() - 0.5) * 0.4, 0, 0.6, 0, '#fff1b0', 0.22, 0.7, 0.2); }
+    if (d < 2.6 && Math.abs(car.p.y - c.y) < 2.5) {
+      c.open = true; c.t = 0; chestsOpen.push(c.i);
+      try { localStorage.setItem('tidewind-chests', JSON.stringify(chestsOpen)); } catch (e) {}
+      chime();
+      for (let k = 0; k < 50; k++) { const a = Math.random() * 6.28, s = 1 + Math.random() * 3.5; emit(c.x, c.y + 0.7, c.z, Math.cos(a) * s, 3 + Math.random() * 6, Math.sin(a) * s, k % 4 ? '#ffd35a' : '#fff6d0', 0.12 + Math.random() * 0.14, 0.9 + Math.random() * 0.8, -0.2); }
+      const n = CHESTS.filter((q) => q.open).length;
+      if (n >= CHESTS.length) { toast(`Treasure chest ${n} of ${CHESTS.length} — every chest found!`, 5); unlock('treasure'); }
+      else toast(`Treasure chest found · ${n} of ${CHESTS.length}`);
+    }
+  }
+}
+
 /* ============================================================ hidden achievements */
 // Fifteen hidden goals. Each shows as ??? in the menu until it is earned; earning one shows a small card with confetti for
 // four seconds. What's been earned, and progress towards the multi-step ones, is kept in this browser.
@@ -2812,6 +2937,7 @@ const ACH_LIST = [
   ['bookworm', 'Bookworm', 'Opened every billboard on the island.'],
   ['networker', 'Networker', 'Visited all four stone contact statues.'],
   ['hired', 'Hired?', 'Opened the resume at Watchtower Ridge.'],
+  ['treasure', 'Treasure Hunter', 'Found all 10 hidden treasure chests.'],
 ];
 const ACH = { got: {}, prog: { boards: [], statues: [], regions: [], day: 0 }, queue: [], showing: false,
   air: { on: false, top: 0 }, lap: 0, lastAng: null, boostT: 0, prevDay: null, tun: null, summitY: null };
@@ -2926,7 +3052,7 @@ function gameLogic(dt, t) {
   if (regionShowT > 0) { regionShowT -= dt; if (regionShowT <= 0) $('region').classList.remove('show'); }
   if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').classList.remove('show'); }
   updateBoardPrompt();
-  if (respawning <= 0) achTick(dt);
+  if (respawning <= 0) { achTick(dt); chestTick(dt, t); }
   drawMap();
 }
 
