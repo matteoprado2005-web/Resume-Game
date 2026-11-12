@@ -309,6 +309,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* ============================================================ portfolio billboards: content */
 // One entry per location. `region` matches the island's place names; everything a location says lives here and nowhere else.
@@ -973,13 +975,11 @@ function windPatch(mat, amount, grass = false) {
 }
 
 /* ============================================================ assets */
-const loader = new GLTFLoader();
-// Models ship as base64 GLB inside JSON: the page may only fetch its own files, so no data: URLs and no WebAssembly decoders.
+const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+// models ship as compressed binary GLB (meshopt geometry, webp textures)
 async function loadModel(url) {
   const res = await fetch(url); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
-  const { glb } = await res.json();
-  const bin = atob(glb); const buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-  return loader.parseAsync(buf.buffer, '');
+  return loader.parseAsync(await res.arrayBuffer(), '');
 }
 const ASSET_NAMES = ['palm_tree_a', 'palm_tree_b', 'palm_tree_young', 'broadleaf_tree', 'broadleaf_tree_small', 'bush', 'grass_clump',
   'rock_boulder', 'rock_flat', 'rock_cliff', 'rock_sea_stack', 'rock_pebble_cluster', 'rock_arch',
@@ -991,7 +991,7 @@ async function loadAssets() {
   // decode embedded textures through <img> (blob: images are allowed) instead of fetch()
   const _cib = window.createImageBitmap; try { window.createImageBitmap = undefined; } catch (e) {}
   try {
-  await Promise.all(ASSET_NAMES.map((n) => loadModel(`assets/${n}.json`).then((g) => {
+  await Promise.all(ASSET_NAMES.map((n) => loadModel(`assets/${n}.glb`).then((g) => {
     const parts = [];
     g.scene.updateMatrixWorld(true);
     g.scene.traverse((o) => {
@@ -1008,7 +1008,7 @@ async function loadAssets() {
     done++; $('loadBar').firstElementChild.style.width = (10 + 50 * done / ASSET_NAMES.length) + '%';
   })));
   // the hidden temple ships as one file; each top-level node is one asset
-  for (const setUrl of ['assets/temple_set.json', 'assets/statues_set.json', 'assets/cliffkit_set.json']) {
+  for (const setUrl of ['assets/temple_set.glb', 'assets/statues_set.glb', 'assets/cliffkit_set.glb', 'assets/cliffwall_set.glb']) {
   const tg = await loadModel(setUrl);
   tg.scene.updateMatrixWorld(true);
   for (const node of [...tg.scene.children]) {
@@ -1047,7 +1047,7 @@ function instanceAsset(name, list, { shadow = true, chunk = 70 } = {}) {
   const groups = new Map();
   for (const it of list) { const k = Math.floor(it.x / chunk) + ',' + Math.floor(it.z / chunk); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new V3(), P = new V3(), E = new THREE.Euler(), T = new THREE.Matrix4();
-  for (const items of groups.values()) {
+  for (const [gkey, items] of groups) {
     for (const part of asset.parts) {
       const im = new THREE.InstancedMesh(part.geo, part.mat, items.length);
       items.forEach((it, i) => {
@@ -1056,7 +1056,7 @@ function instanceAsset(name, list, { shadow = true, chunk = 70 } = {}) {
         if (it.tint) im.setColorAt(i, it.tint);
       });
       im.castShadow = shadow; im.receiveShadow = true;
-      im.computeBoundingSphere(); im.frustumCulled = true;
+      im.computeBoundingSphere(); im.frustumCulled = true; im.userData.kit = name; im.userData.gkey = gkey;
       if (CLEARABLE_RE.test(name)) { im.userData.items = items; im.userData.asset = name; CLEAR_IMS.push(im); for (const it of items) { const k = Math.floor(it.x / 8) * 1000 + Math.floor(it.z / 8); if (!CLEAR_GRID.has(k)) CLEAR_GRID.set(k, []); CLEAR_GRID.get(k).push(it); } }
       world.add(im);
     }
@@ -1173,9 +1173,10 @@ function buildCliffs() {
   const LG = K('L', 7), MD = K('M', 8), SM = K('S', 10);
   if (!LG.length) return;
   for (const n of LG) A[n + '_plain'] = { scene: A[n].scene, parts: A[n].parts.filter((p) => !/boulder/i.test(p.name || '') && !/boulder/i.test(p.geo.name || '')) };
-  // each piece's size from its own geometry: x across, y up, z out of the cliff (front +z, back near z = 0)
-  const dims = {};
-  for (const n of [...LG, ...MD, ...SM]) {
+  // each piece's size: x across, y up, z out of the cliff (front +z, back near z = 0). The rock itself now ships fused
+  // (see buildWall), so the kit only carries its greenery and the sizes of the pieces come from this table
+  const dims = KIT_DIMS;
+  if (!A.wall_00_rock) for (const n of [...LG, ...MD, ...SM]) {
     const bb = new THREE.Box3(), b = new THREE.Box3();
     for (const p of A[n].parts) { if (!p.geo.boundingBox) p.geo.computeBoundingBox(); bb.union(b.copy(p.geo.boundingBox).applyMatrix4(p.mtx)); }
     dims[n] = { w: bb.max.x - bb.min.x, h: bb.max.y - bb.min.y, y0: bb.min.y, d: bb.max.z };
@@ -1326,14 +1327,14 @@ function buildCliffs() {
   }
   // shade the kit as one rock: crevice darkening where a piece recedes into the cliff (its rim and joins),
   // and moss toned down to sit in the stone rather than on it
-  const seen = new Set();
-  for (const nm of [...LG, ...MD, ...SM]) for (const p of A[nm].parts) {
+  const seen = new Set(), WALL = Object.keys(A).filter((k) => /^wall_\d+_(rock|moss)(_lod)?$/.test(k)), fused = WALL.length > 0;
+  for (const nm of [...LG, ...MD, ...SM, ...WALL]) for (const p of A[nm].parts) {
     const m = p.mat; if (seen.has(m)) continue; seen.add(m);
     const mn = (m.name || '').toLowerCase();
     if (/leaf_twig|grass_card/.test(mn)) { m.color.multiplyScalar(0.82); continue; }
     const moss = /moss/.test(mn);
     m.onBeforeCompile = (sh) => {
-      sh.vertexShader = 'varying float vRecess;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vRecess = position.z;');
+      sh.vertexShader = (fused ? 'attribute float recess;\n' : '') + 'varying float vRecess;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vRecess = ' + (fused ? 'recess' : 'position.z') + ';');
       sh.fragmentShader = 'varying float vRecess;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
         float cav = mix(0.55, 1.0, smoothstep(-0.3, 1.4, vRecess));
         diffuseColor.rgb *= cav;
@@ -1355,10 +1356,57 @@ function buildCliffs() {
     stats.strayRocksRemoved = gone.length; }
   // trees, bushes and loose boulders that the new rock now covers are cleared away
   clearArea(clearPts, 2.4);
-  for (const n in lists) instanceAsset(n, lists[n], { shadow: true, chunk: 60 });
+  if (!fused) for (const n in lists) instanceAsset(n, lists[n], { shadow: true, chunk: 60 });
+  else {
+    // with the fused wall the kit carries only its greenery (grass, fern and vine cards). It never moves, so every card is
+    // baked into world space and merged: one mesh per material per section of the wall, casting no shadow
+    const SECS = 12, bins = new Map(), M = new THREE.Matrix4(), T = new THREE.Matrix4(), NM = new THREE.Matrix3(), Q = new THREE.Quaternion(), E = new THREE.Euler(), v = new V3();
+    for (const n in lists) for (const it of lists[n]) for (const part of A[n].parts) {
+      M.compose(v.set(it.x, it.y, it.z), Q.setFromEuler(E.set(it.rx || 0, it.ry || 0, 0, it.order)), new V3(it.sx, it.sy, it.sz)); T.multiplyMatrices(M, part.mtx); NM.getNormalMatrix(T);
+      const g = part.geo, pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv, nv = pos.count;
+      const sec = Math.floor(((Math.atan2(it.z, it.x) + Math.PI) / (Math.PI * 2)) * SECS) % SECS, key = part.mat.uuid + '|' + sec;
+      if (!bins.has(key)) bins.set(key, { mat: part.mat, P: [], N: [], U: [], I: [], base: 0 });
+      const b = bins.get(key);
+      for (let i = 0; i < nv; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(T); b.P.push(v.x, v.y, v.z); v.fromBufferAttribute(nor, i).applyMatrix3(NM).normalize(); b.N.push(v.x, v.y, v.z); b.U.push(uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0); }
+      if (g.index) for (let i = 0; i < g.index.count; i++) b.I.push(b.base + g.index.getX(i)); else for (let i = 0; i < nv; i++) b.I.push(b.base + i);
+      b.base += nv;
+    }
+    for (const b of bins.values()) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(b.P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(b.N, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(b.U, 2));
+      g.setIndex(b.base > 65535 ? new THREE.Uint32BufferAttribute(b.I, 1) : new THREE.Uint16BufferAttribute(b.I, 1)); g.computeBoundingSphere();
+      const m = new THREE.Mesh(g, b.mat); m.receiveShadow = true; world.add(m);
+    }
+    stats.greeneryMeshes = bins.size;
+  }
+  // the rock: every kit piece exactly as placed above, fused in Blender into one wall (faces buried in the island or inside
+  // another piece removed, then decimated) and cut into sections, so those out of view are skipped. Each section swaps to a
+  // lighter copy in the distance. Texture coordinates arrive squeezed into [0,1] for 16-bit storage and are expanded here.
+  if (fused) {
+    const expand = (g) => {
+      if (g.userData.expanded) return; g.userData.expanded = true;
+      const uv = g.attributes.uv, u1 = g.attributes.uv1, n = uv.count, a = new Float32Array(n * 2), r = new Float32Array(n);
+      for (let i = 0; i < n; i++) { a[i * 2] = uv.getX(i) * 6 - 3; a[i * 2 + 1] = uv.getY(i) * 8 - 5; r[i] = u1.getX(i) * 4.5 - 0.5; }
+      g.setAttribute('uv', new THREE.BufferAttribute(a, 2)); g.setAttribute('recess', new THREE.BufferAttribute(r, 1)); g.deleteAttribute('uv1');
+    };
+    const box = new THREE.Box3(), c = new V3();
+    for (const name of WALL.filter((k) => !k.endsWith('_lod'))) {
+      box.makeEmpty();
+      for (const p of A[name].parts) { if (!p.geo.boundingBox) p.geo.computeBoundingBox(); box.union(p.geo.boundingBox.clone().applyMatrix4(p.mtx)); }
+      box.getCenter(c);
+      const lod = new THREE.LOD(); lod.position.copy(c);
+      for (const [nm, dist] of [[name, 0], [name + '_lod', 150]]) {
+        if (!A[nm]) continue; const grp = new THREE.Group(); grp.position.copy(c).negate();
+        for (const p of A[nm].parts) { expand(p.geo); const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx); m.castShadow = true; m.receiveShadow = true; grp.add(m); }
+        lod.addLevel(grp, dist);
+      }
+      world.add(lod); stats.wallSections = (stats.wallSections || 0) + 1;
+    }
+  }
   Object.assign(CLIFF_STATS, stats);
 }
 const CLIFF_STATS = {};
+const KIT_DIMS = {"cliff_L1":{"w":8.721660137176514,"h":15.085946798324585,"y0":-2.452869176864624,"d":3.5721278190612793},"cliff_L2":{"w":12.646827220916748,"h":8.315879464149475,"y0":-0.2827068567276001,"d":2.671205997467041},"cliff_L3":{"w":6.1570885181427,"h":14.84365326166153,"y0":-0.2335544228553772,"d":3.1383566856384277},"cliff_L4":{"w":11.195538520812988,"h":10.450729310512543,"y0":-0.23384374380111694,"d":3.454690456390381},"cliff_L5":{"w":8.86326265335083,"h":11.784180074930191,"y0":-0.23364678025245667,"d":3.1240620613098145},"cliff_L6":{"w":8.663173198699951,"h":14.686289250850677,"y0":-0.2430376410484314,"d":3.2194666862487793},"cliff_L7":{"w":14.172055721282959,"h":7.154819950461388,"y0":-0.23356102406978607,"d":3.235081195831299},"cliff_M1":{"w":3.63252592086792,"h":4.412641406059265,"y0":-0.9099575281143188,"d":2.6799087524414062},"cliff_M2":{"w":5.538897514343262,"h":3.7133394554257393,"y0":-0.11003649979829788,"d":2.669588804244995},"cliff_M3":{"w":4.40726375579834,"h":5.518107175827026,"y0":-1.6609561443328857,"d":1.785478115081787},"cliff_M4":{"w":3.3885586261749268,"h":4.990585193037987,"y0":-0.2214873880147934,"d":1.9713329076766968},"cliff_M5":{"w":3.8399258852005005,"h":4.482784628868103,"y0":-1.124489665031433,"d":2.579925537109375},"cliff_M6":{"w":2.47767174243927,"h":4.598416546359658,"y0":0.029613753780722618,"d":2.268091917037964},"cliff_M7":{"w":4.4011054039001465,"h":4.604207515716553,"y0":-1.2487077713012695,"d":2.6925439834594727},"cliff_M8":{"w":3.942935347557068,"h":4.175462484359741,"y0":-0.38755273818969727,"d":3.1238245964050293},"cliff_S1":{"w":1.8036097884178162,"h":1.5010679066181183,"y0":-0.27375081181526184,"d":1.6811054944992065},"cliff_S2":{"w":1.865636169910431,"h":1.661756407469511,"y0":-0.03738297149538994,"d":2.0183920860290527},"cliff_S3":{"w":1.3847216069698334,"h":1.4636040776968002,"y0":-0.18522916734218597,"d":1.1064393520355225},"cliff_S4":{"w":1.306835651397705,"h":1.7285906076431274,"y0":-0.3687702417373657,"d":1.2084180116653442},"cliff_S5":{"w":1.9220964908599854,"h":1.444151595234871,"y0":-0.035528138279914856,"d":1.7534236907958984},"cliff_S6":{"w":1.3287929892539978,"h":1.4616596102714539,"y0":-0.36675888299942017,"d":1.630601406097412},"cliff_S7":{"w":2.22201144695282,"h":1.535884615033865,"y0":-0.06025528535246849,"d":1.804617166519165},"cliff_S8":{"w":1.6111901998519897,"h":2.243111163377762,"y0":-0.0767679512500763,"d":1.7677232027053833},"cliff_S9":{"w":1.222171425819397,"h":1.5014432100579143,"y0":0.008003887720406055,"d":1.48945951461792},"cliff_S10":{"w":2.2373206615448,"h":1.5508292615413666,"y0":-0.12792345881462097,"d":1.357149362564087}};
 
 /* ============================================================ water */
 function buildWater() {
@@ -1435,10 +1483,11 @@ function buildSky() {
   const clouds = new THREE.Group();
   for (let i = 0; i < 18; i++) {
     const a = (i / 18) * Math.PI * 2 + rr(-0.15, 0.15), r = rr(340, 520), y = rr(45, 120), s = rr(1.1, 2.4);
-    const cg = new THREE.Group(); cg.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
-    for (let k = 0; k < 6 + Math.floor(rand() * 5); k++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(rr(7, 13) * s, 1), cm); b.position.set(rr(-22, 22) * s, rr(-2, 5) * s, rr(-10, 10) * s); b.scale.set(1.3, 0.6, 1); cg.add(b); }
-    clouds.add(cg);
+    const cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+    for (let k = 0; k < 6 + Math.floor(rand() * 5); k++) { const g = new THREE.IcosahedronGeometry(rr(7, 13) * s, 1); g.scale(1.3, 0.6, 1); g.translate(cx + rr(-22, 22) * s, y + rr(-2, 5) * s, cz + rr(-10, 10) * s); geos.push(g); }
   }
+  // every puff of every cloud in one mesh: one draw call for the whole sky ring
+  const cloudMesh = new THREE.Mesh(mergeGeometries(geos), cm); cloudMesh.frustumCulled = false; clouds.add(cloudMesh);
   scene.add(clouds);
   animated.push((dt) => { clouds.rotation.y += dt * 0.003; clouds.position.set(camera.position.x * 0.9, 0, camera.position.z * 0.9); });
 }
@@ -1513,8 +1562,8 @@ function buildVegetation() {
       let hit = false; for (let k = 0; k < pa.count && !hit; k += 2) { v.fromBufferAttribute(pa, k).applyMatrix4(Mx); if (v.y < it.y + 3.2 && pathDist(v.x, v.z) < 3.6) hit = true; }
       if (hit) { l.splice(i, 1); for (const [k, cl] of colGrid) colGrid.set(k, cl.filter((c) => Math.hypot(c.x - it.x, c.z - it.z) > 0.05)); } }
   }
-  for (const [n, l] of Object.entries(palms)) instanceAsset(n, l);
-  for (const [n, l] of Object.entries(trees)) instanceAsset(n, l);
+  for (const [n, l] of Object.entries(palms)) instanceAsset(n, l, { chunk: 110 });
+  for (const [n, l] of Object.entries(trees)) instanceAsset(n, l, { chunk: 110 });
   instanceAsset('bush', bushes, { shadow: false });
   for (const [n, l] of Object.entries(rocks)) instanceAsset(n, l, { shadow: n === 'rock_cliff' });
   instanceAsset('rock_sea_stack', stacks);
@@ -1531,7 +1580,7 @@ function buildGrass() {
     const c = cC.clone().lerp(cA, rand()).lerp(cB, smooth(0.5, 0.9, vnoise(x * 0.04 + 9, z * 0.04)) * 0.7);
     list.push({ x, y: h - 0.05, z, s: rr(0.7, 1.25), ry: rr(0, 6.28), tint: c });
   }
-  instanceAsset('grass_clump', list, { shadow: false, chunk: 50 });
+  instanceAsset('grass_clump', list, { shadow: false, chunk: 80 });
 }
 
 /* ============================================================ structures */
@@ -2634,14 +2683,21 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; } };
+  window.__dbg = { renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; } };
 }
 
 const clock = new THREE.Clock();
 let acc = 0, frames = 0, ftAcc = 0, lastRegionCheck = 0;
 const prevP = new V3(), prevQ = new THREE.Quaternion(), _vOff = new V3();
+const DEBUG = /[?&]debug\b/.test(location.search);
+let lastDraw = 0, dbgEl = null, dbgT = 0, dbgN = 0, dbgMs = 0;
+if (DEBUG) { dbgEl = document.createElement('div'); dbgEl.style.cssText = 'position:fixed;left:8px;top:8px;z-index:99;font:12px/1.4 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.6);padding:6px 8px;border-radius:6px;pointer-events:none;white-space:pre'; document.body.appendChild(dbgEl); }
 function frame() {
   requestAnimationFrame(frame);
+  // while a board is open the game is paused behind it: draw a dozen frames a second instead of every frame
+  const now = performance.now();
+  if (window.__ready && boardOpen && now - lastDraw < 83) return;
+  lastDraw = now;
   const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime; uTime.value = t;
   if (window.__ready) {
     if (playing && !boardOpen) { acc += dt; let n = 0; while (acc >= 1 / 120 && n < 8) { prevP.copy(car.p); prevQ.copy(car.q); physicsStep(1 / 120); acc -= 1 / 120; n++; } if (n === 8) acc = 0; gameLogic(dt, t); }
@@ -2664,9 +2720,15 @@ function frame() {
   const texel = 110 / 2048; const sx = Math.round(st.x / texel) * texel, sz = Math.round(st.z / texel) * texel;
   sun.position.set(sx + SUN_DIR.x * 150, st.y + SUN_DIR.y * 150, sz + SUN_DIR.z * 150); sun.target.position.set(sx, st.y, sz);
   const R = playing ? 55 : 85; if (sun.shadow.camera.right !== R) { Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R }); sun.shadow.camera.updateProjectionMatrix(); }
-  if (window.__diag) { renderer.info.autoReset = false; renderer.info.reset(); }
+  if (window.__diag || DEBUG) { renderer.info.autoReset = false; renderer.info.reset(); }
+  const t0 = DEBUG ? performance.now() : 0;
   composer.render();
   if (window.__diag) { window.__frames = (window.__frames || 0) + 1; window.__info = JSON.stringify(renderer.info.render); }
+  if (DEBUG) {
+    dbgN++; dbgMs += performance.now() - t0; dbgT += dt;
+    if (dbgT > 0.5) { const r = renderer.info.render; dbgEl.textContent = `${Math.round(dbgN / dbgT)} fps  ${(dbgT * 1000 / dbgN).toFixed(1)} ms/frame\ndraw calls ${r.calls}\ntriangles ${(r.triangles / 1e6).toFixed(2)} M\nCPU render ${(dbgMs / dbgN).toFixed(1)} ms\npixel ratio ${pixelRatio.toFixed(2)}`; dbgN = 0; dbgT = 0; dbgMs = 0; }
+  }
+  if (boardOpen) return;                              // throttled frames say nothing about how fast the game runs
   frames++; ftAcc += dt;
   if (ftAcc > 2.5) {
     const avg = ftAcc / frames;
