@@ -2477,7 +2477,7 @@ function physicsStep(dt) {
 /* ============================================================ post */
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 4 }));
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.55, 0.6, 0.9);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.4, 0.55, 1.0);
 composer.addPass(bloom);
 function applyPixelRatio() { renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight); }
 const grade = new ShaderPass({
@@ -2833,8 +2833,8 @@ function setCycle(len) { DAY.t = (DAY.t / CYCLE) * len; CYCLE = len; }
 let SKY_U = null, WATER_U = null, CLOUD_M = null;
 const ENV = { sunI: 3.4, hemiI: 1.5, fillI: 0.6 };
 const PAL = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'string' ? new THREE.Color(v) : v]));
-const PAL_DAY = PAL({ hor: '#cfe3f2', mid: '#86b9e6', zen: '#3b74c6', sunC: '#fff1d6', fog: '#b9cfde', light: '#fff2de', lightI: 3.3, hemiS: '#c4dcff', hemiG: '#6f5d42', hemiI: 1.75, fillI: 0.5, cloud: '#ffffff', cloudE: '#7b8aa6', cloudEI: 0.35, exp: 1.2, wHor: '#bcd6ea', wZen: '#5d8fcf', wSun: '#fff2d6' });
-const PAL_DUSK = PAL({ hor: '#ff9a5c', mid: '#d9748a', zen: '#2b3470', sunC: '#ffd29a', fog: '#b8786e', light: '#ffb27a', lightI: 3.4, hemiS: '#a39ad0', hemiG: '#6b5038', hemiI: 1.5, fillI: 0.6, cloud: '#f2b8a4', cloudE: '#5a3a64', cloudEI: 0.6, exp: 1.45, wHor: '#f29a5e', wZen: '#3a3f7a', wSun: '#ffc08a' });
+const PAL_DAY = PAL({ hor: '#cfe3f2', mid: '#86b9e6', zen: '#3b74c6', sunC: '#fff1d6', fog: '#b9cfde', light: '#fff2de', lightI: 2.5, hemiS: '#c4dcff', hemiG: '#6f5d42', hemiI: 1.5, fillI: 0.45, cloud: '#ffffff', cloudE: '#7b8aa6', cloudEI: 0.3, exp: 1.08, wHor: '#bcd6ea', wZen: '#5d8fcf', wSun: '#fff2d6' });
+const PAL_DUSK = PAL({ hor: '#ff9a5c', mid: '#d9748a', zen: '#2b3470', sunC: '#ffd29a', fog: '#b8786e', light: '#ffb27a', lightI: 2.7, hemiS: '#a39ad0', hemiG: '#6b5038', hemiI: 1.35, fillI: 0.5, cloud: '#f2b8a4', cloudE: '#5a3a64', cloudEI: 0.5, exp: 1.3, wHor: '#f29a5e', wZen: '#3a3f7a', wSun: '#ffc08a' });
 const PAL_NIGHT = PAL({ hor: '#1c2646', mid: '#121a38', zen: '#060a1c', sunC: '#000000', fog: '#121a2e', light: '#9fb4ff', lightI: 1.25, hemiS: '#4e5f98', hemiG: '#1b1e2a', hemiI: 0.9, fillI: 0.3, cloud: '#2c3350', cloudE: '#0e1226', cloudEI: 0.5, exp: 1.55, wHor: '#1c2646', wZen: '#0a1030', wSun: '#c9d6ff' });
 const _pc = new THREE.Color(), _arc = new V3();
 function skyArc(th, out) { return out.set(Math.cos(th), Math.sin(th) * 0.92, 0.38 * Math.sin(th)).normalize(); }   // +x east, +z south
