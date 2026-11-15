@@ -1059,7 +1059,7 @@ async function loadAssets() {
     done++; $('loadBar').firstElementChild.style.width = (10 + 50 * done / ASSET_NAMES.length) + '%';
   })));
   // the hidden temple ships as one file; each top-level node is one asset
-  for (const setUrl of ['assets/temple_set.glb', 'assets/statues_set.glb', 'assets/cliffkit_set.glb', 'assets/cliffwall_set.glb']) {
+  for (const setUrl of ['assets/temple_set.glb', 'assets/statues_set.glb', 'assets/cliffkit_set.glb', 'assets/cliffwall_set.glb', 'assets/craterwall_set.glb']) {
   const tg = await loadModel(setUrl);
   tg.scene.updateMatrixWorld(true);
   for (const node of [...tg.scene.children]) {
@@ -1152,7 +1152,9 @@ function buildTerrain() {
   }
   ctx.putImageData(img, 0, 0);
   const mask = new THREE.CanvasTexture(cv); mask.colorSpace = THREE.NoColorSpace; mask.flipY = false;
-  const cb = new Uint8Array(N * N); for (let k = 0; k < N * N; k++) cb[k] = CL[k] ? 255 : 0;
+  // the stone behind a rock wall is shaded as the wall's own rock in shadow: the coast cliff band, and the lagoon crater's walls
+  const cb = new Uint8Array(N * N);
+  for (let k = 0; k < N * N; k++) { const x = -EXT + (k % N) * CELL, z = -EXT + Math.floor(k / N) * CELL, rc = Math.hypot(x - LAG_C.x, z - LAG_C.z); cb[k] = CL[k] ? 255 : rc > 11 && rc < 23.5 && H[k] > -1 ? 140 : 0; }   // the crater's ground only half as dark, so a chink between rocks reads as rock
   const cliffTex = new THREE.DataTexture(cb, N, N, THREE.RedFormat); cliffTex.unpackAlignment = 1; cliffTex.magFilter = cliffTex.minFilter = THREE.LinearFilter; cliffTex.needsUpdate = true;
 
   // minimap
@@ -1379,7 +1381,8 @@ function buildCliffs() {
   // shade the kit as one rock: crevice darkening where a piece recedes into the cliff (its rim and joins),
   // and moss toned down to sit in the stone rather than on it
   const seen = new Set(), WALL = Object.keys(A).filter((k) => /^wall_\d+_(rock|moss)(_lod)?$/.test(k)), fused = WALL.length > 0;
-  for (const nm of [...LG, ...MD, ...SM, ...WALL]) for (const p of A[nm].parts) {
+  const CRATER = ['crater_rock', 'crater_moss', 'crater_grass', 'crater_leaf'].filter((k) => A[k]);
+  for (const nm of [...LG, ...MD, ...SM, ...WALL, ...CRATER]) for (const p of A[nm].parts) {
     const m = p.mat; if (seen.has(m)) continue; seen.add(m);
     const mn = (m.name || '').toLowerCase();
     if (/leaf_twig|grass_card/.test(mn)) { m.color.multiplyScalar(0.82); continue; }
@@ -1456,9 +1459,27 @@ function buildCliffs() {
       world.add(lod); stats.wallSections = (stats.wallSections || 0) + 1;
     }
   }
+  // Moonwell Lagoon's crater walls: kit pieces stacked from under the water up to the rim, each leaning with the wall
+  // and sunk until only half a metre shows, half-buried small rocks along the rim lip and at the water line, all fused in
+  // Blender into one rock (buried and overlapping faces removed) with its greenery. Colliders keep the buggy off its foot.
+  if (A.crater_rock) {
+    const expand = (g) => {
+      if (g.userData.expanded) return; g.userData.expanded = true;
+      const uv = g.attributes.uv, u1 = g.attributes.uv1, n = uv.count, a = new Float32Array(n * 2), r = new Float32Array(n);
+      for (let i = 0; i < n; i++) { a[i * 2] = uv.getX(i) * 6 - 3; a[i * 2 + 1] = uv.getY(i) * 8 - 5; r[i] = u1 ? u1.getX(i) * 4.5 - 0.5 : 1; }
+      g.setAttribute('uv', new THREE.BufferAttribute(a, 2)); g.setAttribute('recess', new THREE.BufferAttribute(r, 1)); if (u1) g.deleteAttribute('uv1');
+    };
+    for (const nm of CRATER) for (const p of A[nm].parts) {
+      expand(p.geo); const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx);
+      const card = /grass|leaf/.test(nm); m.castShadow = !card; m.receiveShadow = true; world.add(m);
+    }
+    for (const [x, z, r, top] of CRATER_COLS) addCollider(x, z, r, top);
+    stats.craterColliders = CRATER_COLS.length;
+  }
   Object.assign(CLIFF_STATS, stats);
 }
 const CLIFF_STATS = {};
+const CRATER_COLS = [[12.06,-11.79,1.1,6.22],[11.88,-9.37,1.1,6.22],[12.67,-8.07,1.1,6.22],[12.29,-8.36,1.1,7.96],[13.09,-7.68,1.1,7.96],[13.94,-6.96,1.1,7.96],[13.87,-6.99,1.1,7.96],[14.63,-6.17,1.1,7.96],[15.29,-5.25,1.1,7.96],[14.95,-5.92,1.1,6.69],[15.6,-4.89,1.1,6.69],[16.28,-3.81,1.1,6.69],[16.2,-3.91,1.1,6.69],[16.9,-2.76,1.1,6.69],[17.34,-1.52,1.1,6.69],[17.22,-1.92,1.1,5.3],[17.69,-0.43,1.1,5.3],[17.66,1.1,1.1,5.3],[17.8,0.26,1.1,5.3],[17.36,1.73,1.1,5.3],[16.54,3.07,1.1,5.3],[16.84,2.72,1.1,5.76],[15.66,4.01,1.1,5.76],[14.43,5.11,1.1,5.76],[14.45,5.08,1.1,5.76],[13.4,6.14,1.1,5.76],[12.5,7.24,1.1,5.76],[12.98,6.68,1.1,5.81],[11.94,7.83,1.1,5.81],[10.78,8.86,1.1,5.81],[11.22,8.52,1.1,5.81],[9.96,9.4,1.1,5.81],[8.59,10.09,1.1,5.81],[9.17,9.84,1.1,8.88],[8.24,10.18,1.1,8.88],[7.33,10.53,1.1,8.88],[7.7,10.35,1.1,8.88],[6.79,10.65,1.1,8.88],[5.89,10.98,1.1,8.88],[6.25,10.86,1.1,8.14],[5.28,11.17,1.1,8.14],[4.31,11.49,1.1,8.14],[4.33,11.48,1.1,8.14],[3.33,11.78,1.1,8.14],[2.31,12.15,1.1,8.14],[2.57,12.04,1.1,3.48],[1.03,12.57,1.1,3.48],[-0.68,13.15,1.1,3.48],[0.07,12.92,1.1,3.48],[-1.72,13.38,1.1,3.48],[-3.48,13.18,1.1,3.48],[-2.68,13.36,1.1,6.14],[-4.25,12.8,1.1,6.14],[-5.45,11.56,1.1,6.14],[-5.21,11.98,1.1,6.14],[-6.1,10.42,1.1,6.14],[-6.81,8.9,1.1,6.14],[-6.68,9.14,1.1,8.69],[-7.05,8.47,1.1,8.69],[-7.41,7.82,1.1,8.69],[-7.18,8.2,1.1,8.69],[-7.56,7.58,1.1,8.69],[-8.17,7.17,1.1,8.69],[-7.72,7.49,1.1,6.39],[-9.19,6.56,1.1,6.39],[-10.88,5.55,1.1,6.39],[-10.38,5.95,1.1,6.39],[-11.61,4.56,1.1,6.39],[-11.95,2.77,1.1,6.39],[-11.95,3.13,1.1,7.71],[-11.89,2.19,1.1,7.71],[-11.76,1.26,1.1,7.71],[-11.72,1.23,1.1,7.71],[-11.58,0.35,1.1,7.71],[-11.49,-0.51,1.1,7.71],[-11.58,0.33,1.1,5.64],[-11.4,-1.15,1.1,5.64],[-11.15,-2.59,1.1,5.64],[-11.15,-2.59,1.1,5.64],[-10.9,-4.01,1.1,5.64],[-10.55,-5.41,1.1,5.64],[-10.63,-5.01,1.1,8.46],[-10.41,-6.05,1.1,8.46],[-10.07,-7.05,1.1,8.46],[-10.32,-6.39,1.1,8.46],[-9.99,-7.41,1.1,8.46],[-9.66,-8.47,1.1,8.46],[-9.67,-8.46,1.1,8.46],[-9.24,-9.6,1.1,8.46],[-8.59,-10.61,1.1,8.46],[-8.75,-10.35,1.1,8.46],[-7.96,-11.26,1.1,8.46],[-7.0,-11.98,1.1,8.46],[-7.68,-11.45,1.1,6.92],[-6.69,-12.17,1.1,6.92],[-5.58,-12.71,1.1,6.92],[-5.66,-12.66,1.1,6.92],[-4.6,-13.23,1.1,6.92],[-3.58,-13.89,1.1,6.92],[-4.31,-13.44,1.1,7.07],[-3.22,-14.1,1.1,7.07],[-2.15,-14.89,1.1,7.07],[-2.29,-14.8,1.1,7.07],[-1.12,-15.52,1.1,7.07],[0.18,-15.84,1.1,7.07],[-0.69,-15.66,1.1,5.17],[0.77,-15.75,1.1,5.17],[2.22,-15.6,1.1,5.17]];
 const KIT_DIMS = {"cliff_L1":{"w":8.721660137176514,"h":15.085946798324585,"y0":-2.452869176864624,"d":3.5721278190612793},"cliff_L2":{"w":12.646827220916748,"h":8.315879464149475,"y0":-0.2827068567276001,"d":2.671205997467041},"cliff_L3":{"w":6.1570885181427,"h":14.84365326166153,"y0":-0.2335544228553772,"d":3.1383566856384277},"cliff_L4":{"w":11.195538520812988,"h":10.450729310512543,"y0":-0.23384374380111694,"d":3.454690456390381},"cliff_L5":{"w":8.86326265335083,"h":11.784180074930191,"y0":-0.23364678025245667,"d":3.1240620613098145},"cliff_L6":{"w":8.663173198699951,"h":14.686289250850677,"y0":-0.2430376410484314,"d":3.2194666862487793},"cliff_L7":{"w":14.172055721282959,"h":7.154819950461388,"y0":-0.23356102406978607,"d":3.235081195831299},"cliff_M1":{"w":3.63252592086792,"h":4.412641406059265,"y0":-0.9099575281143188,"d":2.6799087524414062},"cliff_M2":{"w":5.538897514343262,"h":3.7133394554257393,"y0":-0.11003649979829788,"d":2.669588804244995},"cliff_M3":{"w":4.40726375579834,"h":5.518107175827026,"y0":-1.6609561443328857,"d":1.785478115081787},"cliff_M4":{"w":3.3885586261749268,"h":4.990585193037987,"y0":-0.2214873880147934,"d":1.9713329076766968},"cliff_M5":{"w":3.8399258852005005,"h":4.482784628868103,"y0":-1.124489665031433,"d":2.579925537109375},"cliff_M6":{"w":2.47767174243927,"h":4.598416546359658,"y0":0.029613753780722618,"d":2.268091917037964},"cliff_M7":{"w":4.4011054039001465,"h":4.604207515716553,"y0":-1.2487077713012695,"d":2.6925439834594727},"cliff_M8":{"w":3.942935347557068,"h":4.175462484359741,"y0":-0.38755273818969727,"d":3.1238245964050293},"cliff_S1":{"w":1.8036097884178162,"h":1.5010679066181183,"y0":-0.27375081181526184,"d":1.6811054944992065},"cliff_S2":{"w":1.865636169910431,"h":1.661756407469511,"y0":-0.03738297149538994,"d":2.0183920860290527},"cliff_S3":{"w":1.3847216069698334,"h":1.4636040776968002,"y0":-0.18522916734218597,"d":1.1064393520355225},"cliff_S4":{"w":1.306835651397705,"h":1.7285906076431274,"y0":-0.3687702417373657,"d":1.2084180116653442},"cliff_S5":{"w":1.9220964908599854,"h":1.444151595234871,"y0":-0.035528138279914856,"d":1.7534236907958984},"cliff_S6":{"w":1.3287929892539978,"h":1.4616596102714539,"y0":-0.36675888299942017,"d":1.630601406097412},"cliff_S7":{"w":2.22201144695282,"h":1.535884615033865,"y0":-0.06025528535246849,"d":1.804617166519165},"cliff_S8":{"w":1.6111901998519897,"h":2.243111163377762,"y0":-0.0767679512500763,"d":1.7677232027053833},"cliff_S9":{"w":1.222171425819397,"h":1.5014432100579143,"y0":0.008003887720406055,"d":1.48945951461792},"cliff_S10":{"w":2.2373206615448,"h":1.5508292615413666,"y0":-0.12792345881462097,"d":1.357149362564087}};
 
 /* ============================================================ water */
