@@ -1381,7 +1381,7 @@ function buildCliffs() {
   // shade the kit as one rock: crevice darkening where a piece recedes into the cliff (its rim and joins),
   // and moss toned down to sit in the stone rather than on it
   const seen = new Set(), WALL = Object.keys(A).filter((k) => /^wall_\d+_(rock|moss)(_lod)?$/.test(k)), fused = WALL.length > 0;
-  const CRATER = ['crater_rock', 'crater_moss', 'crater_grass', 'crater_leaf'].filter((k) => A[k]);
+  const CRATER = ['crater_rock', 'crater_moss', 'crater_grass', 'crater_leaf', 'crater_rock_lod', 'crater_moss_lod'].filter((k) => A[k]);
   for (const nm of [...LG, ...MD, ...SM, ...WALL, ...CRATER]) for (const p of A[nm].parts) {
     const m = p.mat; if (seen.has(m)) continue; seen.add(m);
     const mn = (m.name || '').toLowerCase();
@@ -1469,10 +1469,16 @@ function buildCliffs() {
       for (let i = 0; i < n; i++) { a[i * 2] = uv.getX(i) * 6 - 3; a[i * 2 + 1] = uv.getY(i) * 8 - 5; r[i] = u1 ? u1.getX(i) * 4.5 - 0.5 : 1; }
       g.setAttribute('uv', new THREE.BufferAttribute(a, 2)); g.setAttribute('recess', new THREE.BufferAttribute(r, 1)); if (u1) g.deleteAttribute('uv1');
     };
-    for (const nm of CRATER) for (const p of A[nm].parts) {
-      expand(p.geo); const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx);
-      const card = /grass|leaf/.test(nm); m.castShadow = !card; m.receiveShadow = true; world.add(m);
-    }
+    // near (inside the crater, on the rim road and its surroundings) the detailed rock with its greenery; further off a light copy without it.
+    // The light copy also casts the sun's shadow, from layer 1, which only the shadow camera sees
+    const lod = new THREE.LOD(), C0 = new V3(LAG_C.x, 4, LAG_C.z); lod.position.copy(C0);
+    const level = (names, shadowOnly) => { const g = new THREE.Group(); g.position.copy(C0).negate();
+      for (const nm of names) if (A[nm]) for (const p of A[nm].parts) { expand(p.geo); const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx); m.castShadow = false; m.receiveShadow = true; g.add(m); }
+      return g; };
+    lod.addLevel(level(['crater_rock', 'crater_moss', 'crater_grass', 'crater_leaf']), 0);
+    lod.addLevel(level(['crater_rock_lod', 'crater_moss_lod']), 55);
+    world.add(lod);
+    for (const nm of ['crater_rock_lod', 'crater_moss_lod']) if (A[nm]) for (const p of A[nm].parts) { expand(p.geo); const m = new THREE.Mesh(p.geo, p.mat); m.applyMatrix4(p.mtx); m.castShadow = true; m.receiveShadow = false; m.layers.set(1); world.add(m); }
     for (const [x, z, r, top] of CRATER_COLS) addCollider(x, z, r, top);
     stats.craterColliders = CRATER_COLS.length;
   }
@@ -1876,7 +1882,10 @@ function buildTemple() {
       sh.holes.push(hole);
       const g = new THREE.ShapeGeometry(sh, 6), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 3, uv.getY(i) / 3);
       g.computeVertexNormals();
-      const m = new THREE.Mesh(g, rock); const [gx, gz] = at(s0, 0); m.position.set(gx, 0, gz); m.rotation.y = Math.atan2(-dx, -dz);
+      // at the lagoon the face stands in daylight above the gate: it wears the crater wall's own rock, not the dark tunnel stone
+      const wallRock = s0 > L / 2 && A.crater_rock ? A.crater_rock.parts[0].mat : null;
+      const mat = wallRock ? new THREE.MeshStandardMaterial({ map: wallRock.map, color: wallRock.color.clone().multiplyScalar(0.9), roughness: 0.95, side: THREE.DoubleSide }) : rock;
+      const m = new THREE.Mesh(g, mat); const [gx, gz] = at(s0, 0); m.position.set(gx, 0, gz); m.rotation.y = Math.atan2(-dx, -dz);
       m.castShadow = true; m.receiveShadow = true; world.add(m);
     }
   }
