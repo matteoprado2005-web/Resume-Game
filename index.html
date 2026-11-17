@@ -114,7 +114,16 @@ body.touch #mapWrap { width: 112px; height: 112px; bottom: auto; top: calc(64px 
 #prompt kbd { font-family: var(--fh); font-weight: 700; color: #fff; background: var(--teal); border-radius: 7px; padding: 2px 9px; }
 #prompt .loc { color: var(--coral); font-family: var(--fh); font-weight: 600; }
 #prompt .tap { display: none; }
-#prompt { gap: 10px; } #prompt button.sl { padding: 10px 14px; color: var(--teal); } #prompt button.sl[hidden] { display: none; }
+#focusBar { left: 0; right: 0; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; padding: 0 12px; text-shadow: none; }
+#focusBar[hidden] { display: none; }
+#focusBar button, #focusBar a { pointer-events: auto; font-family: var(--fb); font-weight: 800; font-size: 15px; color: var(--bbink); background: var(--parchment); border: 3px solid var(--wood); border-radius: 12px; padding: 8px 14px; box-shadow: 0 6px 18px rgba(0,0,0,.3); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+#focusBar #fbPrev, #focusBar #fbNext { color: var(--teal); min-width: 48px; justify-content: center; }
+#focusBar #fbCount { font-family: var(--fh); font-weight: 600; color: #fff; background: rgba(43,36,32,.72); border-radius: 10px; padding: 8px 12px; }
+#focusBar #fbActs { display: contents; }
+#focusBar .fbAct { background: var(--teal); color: #fff; border-color: #174a50; } #focusBar .fbAct.view { background: var(--wood); border-color: var(--wood-dk); }
+#focusBar kbd { font-family: var(--fh); font-weight: 700; color: #fff; background: var(--teal); border-radius: 7px; padding: 1px 8px; }
+body.touch #focusBar kbd { display: none; }
+body.reading #touch, body.reading #region, body.reading #hint, body.reading #mapWrap { visibility: hidden; }
 body.touch #prompt kbd { display: none; } body.touch #prompt .tap { display: inline; } body.touch #prompt .tap + span { text-transform: lowercase; }
 #board { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20, 12, 8, 0.55); user-select: text; -webkit-user-select: text; touch-action: auto; }
 #board .card { width: min(780px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--wood); border-radius: 18px; padding: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
@@ -254,7 +263,8 @@ body.touch #prompt kbd { display: none; } body.touch #prompt .tap { display: inl
   <div class="grp"><button class="tbtn" data-k="back" aria-label="Brake or reverse">▼</button><button class="tbtn" data-k="fwd" aria-label="Accelerate">▲</button></div>
 </div>
 
-<div class="hud bb" id="prompt" hidden><button id="slPrev" class="sl" type="button" aria-label="Previous slide"><span aria-hidden="true">◀</span><kbd>,</kbd></button><button id="promptBtn" type="button"><kbd>E</kbd><span class="tap">Tap to</span><span>Read</span><span class="loc" id="promptLoc"></span></button><button id="slNext" class="sl" type="button" aria-label="Next slide"><kbd>.</kbd><span aria-hidden="true">▶</span></button></div>
+<div class="hud bb" id="prompt" hidden><button id="promptBtn" type="button"><kbd>E</kbd><span class="tap">Tap to</span><span>Read</span><span class="loc" id="promptLoc"></span></button></div>
+<div class="hud bb" id="focusBar" hidden role="toolbar" aria-label="Billboard slides"><button id="fbPrev" type="button" aria-label="Previous slide">◀</button><span id="fbCount" aria-live="polite"></span><button id="fbNext" type="button" aria-label="Next slide">▶</button><span id="fbActs"></span><button id="fbExit" type="button"><kbd>E</kbd>Back to the island ✕</button></div>
 <div id="fade"></div>
 <div id="board" class="bb" hidden role="dialog" aria-modal="true" aria-labelledby="boardName">
   <div class="card">
@@ -275,6 +285,7 @@ body.touch #prompt kbd { display: none; } body.touch #prompt .tap { display: inl
   <div class="msub" id="menuSocial" hidden>
     <a class="mitem" href="https://www.instagram.com/pradomatteo" target="_blank" rel="noopener">@pradomatteo</a>
     <a class="mitem" href="https://www.instagram.com/kubarshots" target="_blank" rel="noopener">@kubarshots</a>
+    <a class="mitem" href="https://github.com/matteoprado2005-web/Resume-Game" target="_blank" rel="noopener">GitHub</a>
   </div>
   <div class="tp"><label for="tpSel">Teleport</label>
     <select id="tpSel"><option value="">Choose a billboard…</option></select></div>
@@ -329,6 +340,7 @@ const LINKS = {
   igPersonal: 'https://www.instagram.com/pradomatteo', igPhoto: 'https://www.instagram.com/kubarshots',
   stevenLinkedin: 'https://www.linkedin.com/in/steveibrah/',
   stevenSpotify: 'https://open.spotify.com/artist/0RaoQacxLXUGI5HRXzLsuL',
+  github: 'https://github.com/matteoprado2005-web/Resume-Game',
 };
 const ext = (href, text, cls = 'lnk') => `<a href="${href}" target="_blank" rel="noopener" class="${cls}">${text}</a>`;
 // a tidy row: label on the left, detail under it, one link on the right
@@ -391,7 +403,7 @@ const BOARDS = [
   { id: 'watchtower', region: 'Watchtower Ridge', title: 'The Professional Lookout', teaser: 'My resume, and the statues to connect with me.',
     html: () => `<h3>The Professional Lookout</h3><p class="lede">Let’s connect. I’m open to marketing, finance, and sales internships.</p>
       <p><a class="bbtn big" href="portfolio/Matteo_Resume.pdf" data-resume target="_blank" rel="noopener">⬇ Download resume (PDF)</a></p>
-      <p class="note">Drive up to the stone statues on this ridge to reach me on LinkedIn, Instagram, phone or email.</p>` },
+      <p class="note">Drive up to the stone statues on this ridge to reach me on LinkedIn, Instagram, phone or email, or to see this island’s code on GitHub.</p>` },
   { id: 'lagoon', region: 'Moonwell Lagoon', title: 'The Heart of the Island', teaser: 'The mission at the center of it all.', central: true,
     html: () => `<h3>The Heart of the Island</h3><p class="lede">My mission</p><p class="mission">I want to help brands grow by pairing real conversations with creative work people remember. Every stop on this island is part of that: the sales experience, the photography, and the curiosity to build something new, like this island.</p>` },
   { id: 'bridge', region: 'Emberfall Bridge', title: 'The Crossroads', teaser: 'Every road on the island starts here.', central: true,
@@ -399,7 +411,7 @@ const BOARDS = [
       ${BOARDS.filter((b) => b.ring).map((b) => `<div class="sign"><span class="dir">${b.compass}</span><span><b>${b.region}</b><br><small>${b.title}</small></span><button class="bbtn ghost" type="button" data-goto="${b.id}">Take me there</button></div>`).join('')}</div>` },
   { id: 'tunnel', region: "Tidecaller's Passage", title: 'The Hidden Gallery', teaser: 'You found the secret way. Bonus work inside.', central: true,
     html: () => `<h3>The Hidden Gallery</h3><p class="lede">You found the secret passage. These are the experiments behind the island: the Blender models I built for this world.</p>
-      <div class="rows">${row('Temple of the Sunken Moon', 'Tunnel, gates, idols, pillars and shrine', view('portfolio/bts/blender-temple-assets.png'))}${row('The contact statues', 'LinkedIn, Instagram, phone and email, carved in stone', view('portfolio/bts/blender-contact-statues.png'))}</div>` },
+      <div class="rows">${row('Temple of the Sunken Moon', 'Tunnel, gates, idols, pillars and shrine', view('portfolio/bts/blender-temple-assets.png'))}${row('The contact statues', 'LinkedIn, Instagram, phone, email and GitHub, carved in stone', view('portfolio/bts/blender-contact-statues.png'))}</div>` },
   { id: 'temple', region: 'Temple of the Sunken Moon', title: 'Thank You, Steven', teaser: 'The music behind the island.', central: true,
     html: () => `<h3>Thank You, Steven</h3><p class="lede">The music you hear across Tidewind Isle owes a huge amount to Steven Ibrahim.</p>
       <p>Steven made a large contribution to the island’s background music, and his work sets the mood for every drive, every beach and every night on the island. The island keeps time to the track: the sun rises as the song begins, and night falls halfway through.</p>
@@ -414,6 +426,8 @@ const BOARDS = [
     html: () => `<h3>${LINKS.phone}</h3><p class="lede">Call or text.</p><p><a class="bbtn big" href="tel:${LINKS.tel}">Call ${LINKS.phone}</a></p>` },
   { id: 'st_email', statue: 'statue_email', region: 'Email', title: 'Email', teaser: '',
     html: () => `<h3>${LINKS.email}</h3><p class="lede">I usually reply within a day.</p><p><a class="bbtn big" href="mailto:${LINKS.email}">Send me an email</a></p>` },
+  { id: 'st_github', statue: 'statue_github', region: 'GitHub', title: 'GitHub', teaser: '',
+    html: () => `<h3>GitHub</h3><p class="lede">The code behind this island.</p><p>${ext(LINKS.github, 'Open the Resume-Game repository ↗', 'bbtn big')}</p>` },
   // the stone Spotify plaque behind the temple shrine
   { id: 'spotify', plaque: true, region: 'Spotify', title: 'Steven Ibrahim', teaser: '',
     html: () => `<h3>Steven Ibrahim on Spotify</h3><p class="lede">Hear more of the artist behind the island’s music.</p>
@@ -431,16 +445,16 @@ const BIO = 'I’m Matteo Prado. I was born and raised in Olathe, Kansas, and I�
 const cover = (tab) => ({ tab, cover: true });
 const SLIDE_DEFS = {
   lantern: () => [cover('The Island'),
-    { tab: 'The Idea', title: 'How it started', text: 'Bruno Simon’s driving portfolio showed me a website could be a place you explore, so I built my own island where every stop tells one part of my story.' },
-    { tab: 'Blender', img: 'blender-rock-kit', cap: 'The cliff kit: 25 overgrown rock pieces, modeled in Blender' },
+    { tab: 'The Idea', title: 'How it started', text: 'Bruno Simon’s driving portfolio showed me a website could be a place you explore, so I built my own island where every stop tells one part of my story.', actions: [{ label: 'bruno-simon.com ↗', href: 'https://bruno-simon.com' }] },
+    { tab: 'Blender', img: 'blender-rock-kit', full: 'portfolio/slides/blender-rock-kit.jpg', cap: 'The cliff kit: 25 overgrown rock pieces, modeled in Blender' },
     { tab: 'Blender', title: 'Made in Blender', text: 'Every structure, tree and texture was made in Blender with Python scripts, then turned into game-ready models.' },
-    { tab: 'Three.js', img: 'island-temple', cap: 'The temple in Moonwell Lagoon, running in the browser' },
-    { tab: 'Three.js', img: 'island-gate', cap: 'The hidden tunnel gate, opening onto the lagoon' },
+    { tab: 'Three.js', img: 'island-temple', full: 'portfolio/bts/lagoon-temple.jpg', cap: 'The temple in Moonwell Lagoon, running in the browser' },
+    { tab: 'Three.js', img: 'island-gate', full: 'portfolio/bts/tunnel-gate.jpg', cap: 'The hidden tunnel gate, opening onto the lagoon' },
     { tab: 'Three.js', title: 'Built from scratch', text: 'I built the island from scratch in Three.js, the 3D web experience you are driving through right now.' },
-    { tab: 'Claude Code', code: ['// trees and rocks dissolve in front of the buggy', 'float fade = (1.0 - smoothstep(rad * 0.5, rad, dd))', '  * smoothstep(0.97, 0.88, tt);', 'ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));', 'if (fade * 0.9 > (BAYER[q.x + q.y * 4] + 0.5) / 16.0)', '  discard;'], cap: 'Claude Code let me test a change, drive it, and fix it in the same sitting.' },
+    { tab: 'Claude Code', code: ['// trees and rocks dissolve in front of the buggy', 'float fade = (1.0 - smoothstep(rad * 0.5, rad, dd))', '  * smoothstep(0.97, 0.88, tt);', 'ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));', 'if (fade * 0.9 > (BAYER[q.x + q.y * 4] + 0.5) / 16.0)', '  discard;'], cap: 'Claude Code let me test a change, drive it, and fix it in the same sitting.', actions: [{ label: 'See the code on GitHub ↗', href: LINKS.github }] },
     { tab: 'Challenges', title: 'The hard parts', list: ['Loading the models under the website’s security rules', 'Hills you can drive up next to cliffs you can’t', 'A hidden tunnel through the mountain to the lagoon'] }],
   coral: () => [cover('About Me'),
-    { tab: 'About Me', img: 'headshot', fit: 'contain', cap: 'Matteo Prado · Marketing senior · Lawrence, KS' },
+    { tab: 'About Me', img: 'headshot', full: 'portfolio/headshot.jpg', fit: 'contain', cap: 'Matteo Prado · Marketing senior · Lawrence, KS' },
     { tab: 'Roots', title: 'Olathe to Lawrence', text: 'Born and raised in Olathe, Kansas, and now a marketing senior at the University of Kansas in Lawrence.' },
     { tab: 'Sales', title: 'Four years of sales', text: 'B2B and B2C sales across several industries.' },
     { tab: 'Ventures', title: 'Two ventures of my own', list: ['Kubarshots Media', 'Water Boys'] },
@@ -448,7 +462,7 @@ const SLIDE_DEFS = {
   driftwood: () => [cover('The Academy'),
     { tab: 'Education', title: 'University of Kansas', text: 'Bachelor of Science in Marketing · Minor in Professional Sales · expected May 2027' },
     { tab: 'Education', title: 'Johnson County Community College', text: 'Associate of Applied Science in Business Marketing · May 2025' },
-    ...CERTS.map(([n, d, f]) => ({ tab: 'Certificates', img: 'cert-' + f.replace(/\.\w+$/, ''), fit: 'contain', cap: n + ' · ' + d.split(' · ')[0] }))],
+    ...CERTS.map(([n, d, f]) => ({ tab: 'Certificates', img: 'cert-' + f.replace(/\.\w+$/, ''), full: 'portfolio/certificates/' + f, fit: 'contain', cap: n + ' · ' + d.split(' · ')[0] }))],
   gulls: () => [cover('Career'),
     ...JOBS.map(([r, c, d, b], i) => ({ tab: ['Pro Moving', 'Champion Bath', 'Crunch Fitness', 'Water Boys'][i] || 'Career', title: r, sub: c + ' · ' + d, list: b })),
     { tab: 'And More', title: 'Also', text: 'Brand Ambassador / Marketing at NOCA / Alcolo. Earlier: Sonic, Chipotle, Marco’s Pizza.' }],
@@ -458,26 +472,26 @@ const SLIDE_DEFS = {
     { tab: 'Nightlife', title: 'KU nightlife & fraternity photography', text: '13 fraternities and 5 premier Lawrence venues, including Bullwinkles, Jayhawk Café and Logie’s on Mass' },
     { tab: 'Fetii', title: 'Fetii', text: 'Contract with the national event-coordination brand for fraternity events' },
     { tab: 'DRINKNOCA', title: 'DRINKNOCA', text: 'Marketing materials reaching 200,000+' },
-    { tab: 'Instagram', title: '@kubarshots', text: 'See the photos on Instagram: press E for the link.' }],
+    { tab: 'Instagram', title: '@kubarshots', text: 'See the photos on Instagram.', actions: [{ label: '@kubarshots on Instagram ↗', href: LINKS.igPhoto }] }],
   palm: () => [cover('Beyond'),
     ...[['Fitness', 'Fitness'], ['Finance', 'Finance & investing'], ['Fashion', 'Fashion & modeling'], ['Music', 'Music production', 'Learning FL Studio'], ['Technology', 'Technology & creative experimentation']].map(([tab, title, text]) => ({ tab, title, text }))],
   watchtower: () => [cover('Lookout'),
-    { tab: 'Resume', title: 'My resume', text: 'Press E to download it as a PDF.' },
-    { tab: 'Connect', title: 'The stone statues', text: 'Drive up to the statues on this ridge to reach me on LinkedIn, Instagram, phone or email.' },
+    { tab: 'Resume', title: 'My resume', text: 'One page: experience, education, skills and certificates.', actions: [{ label: '⬇ Download resume (PDF)', resume: 'portfolio/Matteo_Resume.pdf' }] },
+    { tab: 'Connect', title: 'The stone statues', text: 'Drive up to the statues on this ridge to reach me on LinkedIn, Instagram, phone or email, or to see this island’s code on GitHub.' },
     { tab: 'Open To', title: 'Let’s connect', text: 'I’m open to marketing, finance, and sales internships.' }],
   lagoon: () => [cover('Mission'),
     { tab: 'Mission', title: 'My mission', text: 'I want to help brands grow by pairing real conversations with creative work people remember.' },
     { tab: 'Mission', title: 'Every stop', text: 'Every stop on this island is part of that: the sales experience, the photography, and the curiosity to build something new, like this island.' }],
   bridge: () => { const ring = BOARDS.filter((b) => b.ring), out = [cover('Crossroads')];
-    for (let i = 0; i < ring.length; i += 4) out.push({ tab: 'Roads', title: 'Pick a place', list: ring.slice(i, i + 4).map((b) => `${b.compass || ''}  ${b.region}: ${b.title}`) });
+    for (const b of ring) out.push({ tab: 'Roads', title: b.region, sub: `${b.compass ? b.compass + ' of here · ' : ''}${b.title}`, text: b.teaser, actions: [{ label: 'Take me there', goto: b.id }] });
     return out; },
   tunnel: () => [cover('Gallery'),
-    { tab: 'Blender', img: 'blender-temple', fit: 'contain', cap: 'Temple of the Sunken Moon: tunnel, gates, idols, pillars and shrine' },
-    { tab: 'Blender', img: 'blender-statues', fit: 'contain', cap: 'The contact statues: LinkedIn, Instagram, phone and email, carved in stone' }],
+    { tab: 'Blender', img: 'blender-temple', full: 'portfolio/bts/blender-temple-assets.png', fit: 'contain', cap: 'Temple of the Sunken Moon: tunnel, gates, idols, pillars and shrine' },
+    { tab: 'Blender', img: 'blender-statues', full: 'portfolio/bts/blender-contact-statues.png', fit: 'contain', cap: 'The contact statues: LinkedIn, Instagram, phone, email and GitHub, carved in stone' }],
   temple: () => [cover('Thank You'),
     { tab: 'Thank You', title: 'Thank you, Steven', text: 'The music you hear across Tidewind Isle owes a huge amount to Steven Ibrahim.' },
     { tab: 'The Music', title: 'In time with the island', text: 'The island keeps time to the track: the sun rises as the song begins, and night falls halfway through.' },
-    { tab: 'Listen', title: 'Steven Ibrahim', text: 'Press E for Spotify and LinkedIn.' }],
+    { tab: 'Listen', title: 'Steven Ibrahim', text: 'Hear more of his music, or connect with him.', actions: [{ label: 'Listen on Spotify ↗', href: LINKS.stevenSpotify }, { label: 'Steven on LinkedIn ↗', href: LINKS.stevenLinkedin }] }],
 };
 
 
@@ -1014,7 +1028,7 @@ const uTime = { value: 0 }, uCar = { value: new V3(0, -100, 0) };
 // see-through: trees, bushes, rocks and the cliff wall dissolve in an ordered dither wherever they come between the camera
 // and the buggy. uSee.xyz is the buggy, uSee.w switches it on while driving. The fragment's world position comes from the
 // view-space position every lit material already carries, so this sits on top of any other shader patch.
-const uSee = { value: new THREE.Vector4(0, -100, 0, 0) };
+const uSee = { value: new THREE.Vector4(0, -100, 0, 0) }, uSeeR = { value: 1 };   // uSeeR widens the cone while reading a billboard
 // grass lights as soft, even ground cover: every blade, front or back, takes the light as if it faced the sky, so the sun
 // and moon (and the shadows they cast) do the shading instead of the cards' own facing turning whole clumps black
 function grassLightPatch(m) {
@@ -1032,15 +1046,15 @@ function ditherPatch(m) {
   const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
   m.onBeforeCompile = function (sh, r) {
     if (prev) prev.call(this, sh, r);
-    sh.uniforms.uSee = uSee;
-    sh.fragmentShader = 'uniform vec4 uSee;\n' + sh.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+    sh.uniforms.uSee = uSee; sh.uniforms.uSeeR = uSeeR;
+    sh.fragmentShader = 'uniform vec4 uSee;\nuniform float uSeeR;\n' + sh.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
       if (uSee.w > 0.5) {
         vec3 wPos = transpose(mat3(viewMatrix)) * (-vViewPosition - viewMatrix[3].xyz);
         vec3 seg = uSee.xyz - cameraPosition;
         float tt = clamp(dot(wPos - cameraPosition, seg) / max(dot(seg, seg), 1e-4), 0.0, 1.0);
         float dd = length(wPos - cameraPosition - seg * tt);
-        float rad = mix(1.1, 2.7, tt);
-        float fade = (1.0 - smoothstep(rad * 0.5, rad, dd)) * smoothstep(0.97, 0.88, tt) * smoothstep(0.02, 0.1, tt);
+        float rad = mix(1.1, 2.7, tt) * uSeeR;
+        float fade = (1.0 - smoothstep(rad * 0.5, rad, dd)) * (uSeeR > 1.01 ? smoothstep(0.995, 0.975, tt) : smoothstep(0.97, 0.88, tt)) * smoothstep(0.02, 0.1, tt);
         const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
         ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));
         if (fade * 0.9 > (BAYER[q.x + q.y * 4] + 0.5) / 16.0) discard;
@@ -2088,7 +2102,7 @@ function placeBoard(def, spot, opts = {}) {
   const sl = m.userData.sl; sl.slides = SLIDE_DEFS[def.id] ? null : [cover(def.title)];
   if (opts.posts !== false) for (const s of [-1, 1]) addCollider(x + fz * 1.45 * s * sc, z - fx * 1.45 * s * sc, 0.3, y + 5);
   const d = opts.spawnDist ?? 7, spawn = { x: x + fx * d, z: z + fz * d, yaw: Math.atan2(fz, -fx) };
-  const b = { def, x, y, z, f: [fx, fz], spawn, cave: !!opts.cave, sl }; sl.face.userData.board = b; BB.push(b); return b;
+  const b = { def, x, y, z, f: [fx, fz], spawn, cave: !!opts.cave, sl, sc, base: opts.posts !== false ? 1.55 : 0, signTop: !!opts.signTop }; sl.face.userData.board = b; BB.push(b); return b;
 }
 function buildBillboards() {
   for (const def of BOARDS) {
@@ -2127,7 +2141,7 @@ function buildBillboards() {
 // the four giant stone contact statues stand side by side along the loop road at Watchtower Ridge, all facing the road
 function placeStatues() {
   const tower = BB.find((b) => b.def.id === 'watchtower'); if (!tower) return;
-  const defs = BOARDS.filter((d) => d.statue), SC = 1.2, n = defs.length, STEP = 10, n0 = loop.length;
+  const defs = BOARDS.filter((d) => d.statue), SC = 0.9, n = defs.length, STEP = 8, n0 = loop.length;   // five statues: smaller, closer together
   const okAt = (x, z, lv) => (lv > 2 || landAt(x, z)) && slopeNY(x, z) > [0.74, 0.68, 0.62, 0.52, 0.45, 0.3, 0][lv] && heightAt(x, z) > 1.5 && pathDist(x, z) > 5.2 && deckAt(x, z) < -50 &&
     !BB.some((q) => Math.hypot(q.x - x, q.z - z) < 6.5) && !nearColliders(x, z).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + [3.2, 2.6, 2.0, 1.6, 1.4, 1.2, 1.0][lv] && !(lv >= 1 && clearableAt(c.x, c.z)));   // trees and rocks can be cleared
   const i0 = loopIndexAt(Math.atan2(tower.z, tower.x));
@@ -2145,7 +2159,7 @@ function placeStatues() {
       spots.push({ x, z, fx: -nx, fz: -nz });
     }
     if (!ok || rise / n < -0.2) continue;                            // level with or above the road, never down a bank
-    const mid = spots[1], score = Math.hypot(mid.x - tower.x, mid.z - tower.z) * 0.6 - (rise / n) * 1.2 + off * 3 + lv * 30;   // close to the road comes first
+    const mid = spots[Math.floor(n / 2)], score = Math.hypot(mid.x - tower.x, mid.z - tower.z) * 0.6 - (rise / n) * 1.2 + off * 3 + lv * 30;   // close to the road comes first
     if (!best || score < best.score) best = { spots, score, lv, off };
   }
   window.__stLv = best && best.lv; if (!best) return;
@@ -2154,7 +2168,7 @@ function placeStatues() {
     const { x, z, fx, fz } = best.spots[i], ry = Math.atan2(fx, fz), c = Math.cos(ry), s2 = Math.sin(ry);
     // sit on the highest ground under the pedestal (so no part is buried) and build a stone foundation down to the lowest
     let yHi = -99, yLo = 99;
-    for (let ox = -4.4; ox <= 4.4; ox += 1.1) for (let oz = -2.2; oz <= 2.2; oz += 1.1) { const g = groundAt(x + ox * c + oz * s2, z - ox * s2 + oz * c); yHi = Math.max(yHi, g); yLo = Math.min(yLo, g); }
+    for (let ox = -3.7 * SC; ox <= 3.7 * SC; ox += 0.9) for (let oz = -1.85 * SC; oz <= 1.85 * SC; oz += 0.9) { const g = groundAt(x + ox * c + oz * s2, z - ox * s2 + oz * c); yHi = Math.max(yHi, g); yLo = Math.min(yLo, g); }
     const y = yHi - 0.15;
     placeClone(def.statue, x, y, z, ry, SC);
     if (y - yLo > 0.1) {
@@ -2165,7 +2179,7 @@ function placeStatues() {
       fnd.position.set(x, y - hgt / 2 + 0.02, z); fnd.rotation.y = ry; fnd.castShadow = fnd.receiveShadow = true; world.add(fnd);
     }
     for (const u of [-2.6, 0, 2.6]) addCollider(x + fz * u * SC, z - fx * u * SC, 1.9 * SC, y + 9);
-    BB.push({ def, x, y, z, f: [fx, fz], spawn: { x: x + fx * 10, z: z + fz * 10, yaw: Math.atan2(fz, -fx) }, cave: false, statue: true });
+    BB.push({ def, x, y, z, f: [fx, fz], spawn: { x: x + fx * 8, z: z + fz * 8, yaw: Math.atan2(fz, -fx) }, cave: false, statue: true });
   });
 }
 const lanternDock = () => DECKS.filter((d) => d.kind === 'dock').sort((a, b) => Math.abs(angDiff(Math.atan2(a.z, a.x), DOCK_ANGLES[1])) - Math.abs(angDiff(Math.atan2(b.z, b.x), DOCK_ANGLES[1])))[0];
@@ -2209,7 +2223,7 @@ function boardTorches() {
   for (const [x, z] of spots) { const y = groundAt(x, z); big.push({ x, y, z, ry: rr(0, 6.28), s: 1.6 }); TORCHES.push({ x, y: y + 2.38 * 1.6, z, flame: 1.6, big: true }); addCollider(x, z, 0.35, y + 4); }
   instanceAsset('tiki_torch_tribal', big, { shadow: false, chunk: 1000 });
   // after dark the carved icons glow softly so the statues stay easy to spot
-  for (const name of ['statue_linkedin', 'statue_instagram', 'statue_phone', 'statue_email', 'statue_spotify']) for (const p of (A[name] && A[name].parts) || []) {
+  for (const name of ['statue_linkedin', 'statue_instagram', 'statue_phone', 'statue_email', 'statue_github', 'statue_spotify']) for (const p of (A[name] && A[name].parts) || []) {
     const m = p.mat; if (!/statue_carve/.test(m.name || '') || STATUE_GLOW.includes(m)) continue;
     m.emissive = new THREE.Color('#ffd9a8'); m.emissiveMap = m.map; m.emissiveIntensity = 0; STATUE_GLOW.push(m);
   }
@@ -2231,11 +2245,70 @@ function openBoard(id) {
   $('prompt').hidden = true; $('boardX').focus();
 }
 function closeBoard() { if (!boardOpen) return; $('board').hidden = true; boardOpen = null; acc = 0; canvas.focus(); }
-function goTo(id) {
+/* read mode: the camera glides up to the billboard and the slides are the page. Arrows, a tap or a click step through them;
+   the buttons drawn on a slide (links, the resume, full-size images, roads) work by tapping them, and are repeated in the bar below */
+let focusB = null;
+const FOCUS = { k: 0, pos: new V3(), look: new V3(), from: null };
+const slideActions = (sl) => [...(sl.actions || []), ...(sl.full ? [{ label: 'View full size ⤢', view: sl.full }] : [])];
+const readable = (b) => !!(b && b.sl && SLIDE_DEFS[b.def.id]);
+function enterFocus(b) {
+  if (!readable(b) || !playing) return;
+  toggleMenu(false); toggleSettings(false); closeBoard();
+  if (focusB && focusB !== b) exitFocus(true);
+  focusB = b; Object.keys(input).forEach((k) => (input[k] = 0));
+  if (b.sl.i === 0 && b.sl.slides.length > 1) slideTo(b, 1, true); else drawSlide(b);
+  b.sl.hold = 0; achBoard(b.def.id);
+  $('prompt').hidden = true; $('focusBar').hidden = false; updateFocusBar(); document.body.classList.add('reading');
+}
+function exitFocus(quiet) {
+  if (!focusB) return; const b = focusB; focusB = null; drawSlide(b); b.sl.hold = 6;
+  $('focusBar').hidden = true; document.body.classList.remove('reading'); if (!quiet) canvas.focus();
+}
+function focusStep(d) { if (focusB) slideTo(focusB, focusB.sl.i + d, true); }
+function runAction(a) {
+  if (!a) return;
+  if (a.href) window.open(a.href, '_blank', 'noopener');
+  else if (a.resume) { unlock('hired'); saveResume(a.resume); }
+  else if (a.view) openImage(a.view);
+  else if (a.goto) { exitFocus(true); goTo(a.goto); }
+}
+function updateFocusBar() {
+  const b = focusB; if (!b) return; const sl = b.sl, s = sl.slides[sl.i], n = sl.slides.length;
+  $('fbCount').textContent = `${sl.i + 1} / ${n} · ${s.tab || b.def.title}`;
+  const box = $('fbActs'); box.innerHTML = '';
+  for (const a of slideActions(s)) {
+    const el = document.createElement(a.href ? 'a' : 'button'); el.className = 'fbAct' + (a.view ? ' view' : ''); el.textContent = a.label;
+    if (a.href) { el.href = a.href; el.target = '_blank'; el.rel = 'noopener'; } else { el.type = 'button'; el.addEventListener('click', () => runAction(a)); }
+    box.appendChild(el);
+  }
+}
+// where the camera sits to read a board: square in front of it, far enough back that the face (and on wide screens the sign) fits
+const _fr = new V3();
+function focusFrame(b) {
+  const [fx, fz] = b.f, rx = fz, rz = -fx, sc = b.sc, wide = camera.aspect > 1.15 && !b.signTop;
+  const cxl = wide ? 0.62 * sc : 0, cyl = b.y + (b.base + (b.signTop ? 1.6 : 1.125)) * sc;
+  const wantW = (wide ? 5.9 : 4.1) * sc, wantH = (b.signTop ? 4.1 : 2.95) * sc;
+  const vf = THREE.MathUtils.degToRad(camera.fov) / 2, hf = Math.atan(Math.tan(vf) * camera.aspect);
+  const d = Math.max(wantW / 2 / Math.tan(hf), wantH / 2 / Math.tan(vf)) + 0.085 * sc;
+  const lx = b.x + rx * cxl, lz = b.z + rz * cxl, ly = cyl - 0.18 * sc;     // aim a touch low so the bar underneath doesn't cover the board
+  FOCUS.look.set(lx, ly, lz); FOCUS.pos.set(lx + fx * d, cyl + 0.1 * sc, lz + fz * d);
+}
+function applyFocus(dt) {
+  const want = focusB ? 1 : 0; if (!want && FOCUS.k === 0) return;
+  if (focusB) { FOCUS.from = focusB; focusFrame(focusB); }
+  FOCUS.k = clamp(FOCUS.k + (want ? dt / 0.7 : -dt / 0.55), 0, 1);
+  const b = FOCUS.from; if (!b) return;
+  const e = FOCUS.k * FOCUS.k * (3 - 2 * FOCUS.k);
+  _fr.copy(camTarget).lerp(FOCUS.look, e); camera.position.lerp(FOCUS.pos, e); camera.lookAt(_fr);
+  b.sl.face.material.emissiveIntensity = 0.16 + 0.22 * e;
+  const hide = e < 0.6; if (carVisual) carVisual.visible = hide; wheelMeshes.forEach((w) => (w.grp.visible = hide));
+  if (FOCUS.k === 0) FOCUS.from = null;
+}
+function goTo(id, read) {
   const b = BB.find((q) => q.def.id === id); if (!b) return;
-  closeBoard(); if (!playing) start();
+  closeBoard(); exitFocus(true); if (!playing) start();
   $('fade').classList.add('on');
-  setTimeout(() => { CAVE.under = !!b.spawn.cave; placeCar(b.spawn.x, b.spawn.z, b.spawn.yaw, b.spawn.y); camTarget.copy(car.p); cam.yawT = cam.yaw = Math.atan2(-Math.cos(b.spawn.yaw), Math.sin(b.spawn.yaw)); setTimeout(() => $('fade').classList.remove('on'), 120); }, 380);
+  setTimeout(() => { CAVE.under = !!b.spawn.cave; placeCar(b.spawn.x, b.spawn.z, b.spawn.yaw, b.spawn.y); camTarget.copy(car.p); cam.yawT = cam.yaw = Math.atan2(-Math.cos(b.spawn.yaw), Math.sin(b.spawn.yaw)); setTimeout(() => $('fade').classList.remove('on'), 120); if (read) { nearBoard = b; enterFocus(b); } }, 380);
 }
 $('boardX').addEventListener('click', closeBoard);
 $('board').addEventListener('click', (e) => {
@@ -2273,17 +2346,27 @@ async function saveResume(href) {
   catch (err) { if (!err || err.code !== 'declined') window.open(href, '_blank', 'noopener'); }
 }
 $('lightbox').addEventListener('click', () => { $('lightbox').hidden = true; });
-$('promptBtn').addEventListener('click', () => { if (nearBoard) openBoard(nearBoard.def.id); });
-$('slPrev').addEventListener('click', () => { if (nearBoard && nearBoard.sl) slideTo(nearBoard, nearBoard.sl.i - 1, true); });
-$('slNext').addEventListener('click', () => { if (nearBoard && nearBoard.sl) slideTo(nearBoard, nearBoard.sl.i + 1, true); });
+const readNear = () => { if (!nearBoard) return; if (readable(nearBoard)) enterFocus(nearBoard); else openBoard(nearBoard.def.id); };
+$('promptBtn').addEventListener('click', readNear);
+$('fbPrev').addEventListener('click', () => focusStep(-1));
+$('fbNext').addEventListener('click', () => focusStep(1));
+$('fbExit').addEventListener('click', () => exitFocus());
 // click or tap a billboard: its left half goes back a slide, its right half forward
 { const rc = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
   canvas.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
   canvas.addEventListener('pointerup', (e) => {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6 || !playing || anyOverlay()) return; down = null;
     const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    rc.setFromCamera(ndc, camera); const hit = rc.intersectObjects(BOARD_FACES, false)[0];
-    if (hit && hit.distance < 40 && hit.object.userData.board) slideTo(hit.object.userData.board, hit.object.userData.board.sl.i + (hit.uv.x < 0.5 ? -1 : 1), true);
+    rc.setFromCamera(ndc, camera);
+    if (focusB) {
+      // reading: a button on the slide does its thing, the left third goes back, anywhere else goes forward
+      const hit = rc.intersectObject(focusB.sl.face, false)[0];
+      if (hit) { const px = hit.uv.x * 1024, py = (1 - hit.uv.y) * 640, h = focusB.sl.hits.find((q) => px >= q.x && px <= q.x + q.w && py >= q.y && py <= q.y + q.h);
+        if (h) return runAction(h.a); return focusStep(px < 1024 * 0.3 ? -1 : 1); }
+      return focusStep(1);
+    }
+    const hit = rc.intersectObjects(BOARD_FACES, false)[0];
+    if (hit && hit.distance < 40 && hit.object.userData.board) { const b = hit.object.userData.board; if (b === nearBoard && readable(b)) enterFocus(b); else slideTo(b, b.sl.i + (hit.uv.x < 0.5 ? -1 : 1), true); }
   });
 }
 function toggleMenu(open) { const m = $('menu'), o = open ?? m.hidden; m.hidden = !o; $('menuBtn').setAttribute('aria-expanded', String(o)); }
@@ -2293,16 +2376,25 @@ $('menu').addEventListener('click', (e) => {
   const go = it.dataset.go;
   if (go === 'social') { const sub = $('menuSocial'); sub.hidden = !sub.hidden; it.setAttribute('aria-expanded', String(!sub.hidden)); return; }
   toggleMenu(false);
-  if (go === 'home') { closeBoard(); if (!playing && !$('start').disabled) start(); return; }
+  if (go === 'home') { closeBoard(); exitFocus(); if (!playing && !$('start').disabled) start(); return; }
+  const tb = BB.find((q) => q.def.id === go); if (readable(tb)) return goTo(go, true);
   openBoard(go);
 });
 addEventListener('pointerdown', (e) => { if (!$('menu').hidden && !e.target.closest('#menu, #menuBtn')) toggleMenu(false); });
 // keyboard: Esc closes the top-most overlay; while a board is open the buggy doesn't drive
 addEventListener('keydown', (e) => {
-  if (e.code === 'Escape') { if (!$('lightbox').hidden) $('lightbox').hidden = true; else if (boardOpen) closeBoard(); else if (!$('menu').hidden) toggleMenu(false); else return; e.stopImmediatePropagation(); return; }
+  if (e.code === 'Escape') { if (!$('lightbox').hidden) $('lightbox').hidden = true; else if (boardOpen) closeBoard(); else if (!$('menu').hidden) toggleMenu(false); else if (focusB) exitFocus(); else return; e.stopImmediatePropagation(); return; }
   if (anyOverlay()) { e.stopImmediatePropagation(); return; }
-  if (e.code === 'KeyE' && !e.repeat && nearBoard && playing) { e.preventDefault(); e.stopImmediatePropagation(); openBoard(nearBoard.def.id); }
-  if ((e.code === 'Comma' || e.code === 'Period') && nearBoard && nearBoard.sl && playing) { e.preventDefault(); e.stopImmediatePropagation(); slideTo(nearBoard, nearBoard.sl.i + (e.code === 'Period' ? 1 : -1), true); }
+  if (focusB) {
+    // reading: the buggy stays parked; arrows page, E or Backspace steps back out
+    const k = e.code;
+    if (['ArrowRight', 'KeyD', 'Period', 'Space', 'Enter', 'ArrowDown'].includes(k)) { if (!e.repeat) focusStep(1); }
+    else if (['ArrowLeft', 'KeyA', 'KeyQ', 'Comma', 'ArrowUp'].includes(k)) { if (!e.repeat) focusStep(-1); }
+    else if ((k === 'KeyE' || k === 'Backspace') && !e.repeat) exitFocus();
+    else if (!['KeyW', 'KeyS', 'KeyZ', 'KeyR', 'ShiftLeft', 'ShiftRight'].includes(k)) return;
+    e.preventDefault(); e.stopImmediatePropagation(); return;
+  }
+  if (e.code === 'KeyE' && !e.repeat && nearBoard && playing) { e.preventDefault(); e.stopImmediatePropagation(); readNear(); }
 }, true);
 // which billboard is the buggy parked by?
 function updateBoardPrompt() {
@@ -2313,8 +2405,8 @@ function updateBoardPrompt() {
     if (d < reach && d < bd && Math.abs(car.p.y - b.y) < (b.statue ? 7 : 4.5)) { bd = d; best = b; }
   }
   if (best !== nearBoard) { nearBoard = best; if (best) $('promptLoc').textContent = '· ' + best.def.region; }
-  $('prompt').hidden = !nearBoard || !!boardOpen;
-  const many = !!(nearBoard && nearBoard.sl && nearBoard.sl.slides.length > 1); $('slPrev').hidden = $('slNext').hidden = !many;
+  $('prompt').hidden = !nearBoard || !!boardOpen || !!focusB;
+  if (focusB && Math.hypot(car.p.x - focusB.x, car.p.z - focusB.z) > 16) exitFocus(true);
 }
 
 /* spirit orbs */
@@ -2751,7 +2843,7 @@ function drawSlide(b) {
     ctx.fillStyle = '#C2462F'; fitFont(ctx, def.title, 700, 92, FONT_H, pw - 80); ctx.fillText(def.title, cx, py + 168);
     ctx.fillStyle = '#2B2420'; ctx.font = `700 38px ${FONT_B}`;
     wrapLines(ctx, def.teaser || '', pw - 140).slice(0, 2).forEach((l, k) => ctx.fillText(l, cx, py + 262 + k * 48));
-    ctx.fillStyle = '#1F5F66'; ctx.font = `700 26px ${FONT_B}`; ctx.fillText(isTouch ? 'Tap READ for the full story' : 'Press E for the full story', cx, py + ph - 38);
+    ctx.fillStyle = '#1F5F66'; ctx.font = `700 26px ${FONT_B}`; ctx.fillText(focusB === b ? (isTouch ? 'Tap the board for the next slide' : 'Click, or press → for the next slide') : (isTouch ? 'Tap READ to step through it' : 'Press E to step through it'), cx, py + ph - 38);
   } else if (sl.img) {
     const im = slideImg(sl.img), capH = sl.cap ? 84 : 0;
     if (im.complete && im.naturalWidth) {
@@ -2773,7 +2865,7 @@ function drawSlide(b) {
     ctx.fillStyle = '#C2462F'; fitFont(ctx, sl.title, 700, 64, FONT_H, pw - 90); ctx.fillText(sl.title, cx, y); y += 62;
     if (sl.sub) { ctx.fillStyle = '#7A4B2A'; fitFont(ctx, sl.sub, 700, 30, FONT_B, pw - 90); ctx.fillText(sl.sub, cx, y); y += 54; } else y += 14;
     ctx.fillStyle = '#2B2420';
-    if (sl.text) { ctx.font = `700 ${sl.text.length > 120 ? 34 : 40}px ${FONT_B}`; const lh = sl.text.length > 120 ? 46 : 54; wrapLines(ctx, sl.text, pw - 120).slice(0, 5).forEach((l, k) => ctx.fillText(l, cx, y + 20 + k * lh)); }
+    if (sl.text) { ctx.font = `700 ${sl.text.length > 120 ? 34 : 40}px ${FONT_B}`; const lh = sl.text.length > 120 ? 46 : 54; wrapLines(ctx, sl.text, pw - 120).slice(0, sl.actions ? 4 : 5).forEach((l, k) => ctx.fillText(l, cx, y + 20 + k * lh)); }
     if (sl.list) { ctx.textAlign = 'left'; let yy = y + 18; const room = py + ph - 24 - yy, per = room / sl.list.length;
       for (const t of sl.list) {
         const { out, size } = wrapFit(ctx, t, 700, 34, FONT_B, pw - 160, per > 80 ? 2 : 1), lh = size + 8;
@@ -2787,6 +2879,21 @@ function drawSlide(b) {
       rows.forEach((r, k) => { let x = cx - (r.reduce((a, [, cw]) => a + cw + 14, -14)) / 2; const yy = y + 16 + k * 70;
         for (const [c, cw] of r) { ctx.fillStyle = '#1F5F66'; roundRect(ctx, x, yy - 26, cw, 52, 26); ctx.fill(); ctx.fillStyle = '#FFFFFF'; ctx.fillText(c, x + cw / 2, yy + 1); x += cw + 14; } });
     }
+  }
+  // buttons on the slide: links, the resume, full-size images, roads to other stops
+  b.sl.hits = [];
+  const acts = focusB === b ? slideActions(sl) : [];   // the buttons show while you're reading
+  if (acts.length) {
+    ctx.font = `800 30px ${FONT_B}`; const bh = 62, gap = 18;
+    const ws = acts.map((a) => Math.min(pw - 80, ctx.measureText(a.label).width + 64)), tot = ws.reduce((a, w) => a + w + gap, -gap);
+    const by = sl.img ? py + 18 : py + ph - bh - 22;             // on a picture they sit in its top-right corner, clear of the subject
+    let x = sl.img ? px + pw - 18 - tot : cx - tot / 2;
+    acts.forEach((a, k) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; roundRect(ctx, x + 3, by + 5, ws[k], bh, bh / 2); ctx.fill();
+      ctx.fillStyle = a.view ? '#5E3820' : '#1F5F66'; roundRect(ctx, x, by, ws[k], bh, bh / 2); ctx.fill();
+      ctx.fillStyle = '#FFFFFF'; fitFont(ctx, a.label, 800, 30, FONT_B, ws[k] - 40); ctx.fillText(a.label, x + ws[k] / 2, by + bh / 2 + 1);
+      b.sl.hits.push({ x, y: by, w: ws[k], h: bh, a }); x += ws[k] + gap;
+    });
   }
   ctx.restore();
   // page dots, and the arrows that say there's more
@@ -2812,6 +2919,7 @@ function slideTo(b, i, manual) {
   drawSlide(b);
   if (sl.slides[i].tab !== prevTab) sl.flip = { t: 0, word: sl.slides[i].tab, swapped: false };
   if (manual) clickSfx();
+  if (focusB === b) updateFocusBar();
 }
 // slides move on by themselves near the buggy; a flip turns the sign edge-on, swaps its words, and swings it back
 function slideTick(dt) {
@@ -2823,7 +2931,7 @@ function slideTick(dt) {
       sl.pivot.rotation.x = f.t < 0.5 ? -Math.PI / 2 * (f.t / 0.5) : Math.PI / 2 * (1 - Math.min(1, (f.t - 0.5) / 0.5));
       if (f.t >= 1) { sl.pivot.rotation.x = 0; sl.flip = null; }
     }
-    if (boardOpen || sl.slides.length < 2) continue;
+    if (boardOpen || b === focusB || sl.slides.length < 2) continue;
     const d = Math.hypot(car.p.x - b.x, car.p.z - b.z);
     if (d > 45) continue;
     if (sl.hold > 0) { sl.hold -= dt; continue; }
@@ -2988,7 +3096,7 @@ async function boot() {
   }
   world.traverse((o) => { if (!o.isMesh) return; const k = o.userData.kit || '', mn = o.material && o.material.name || '';
     if (k === 'grass_clump' || k === 'bush' || /grass_card|leaf_twig/.test(mn)) grassLightPatch(o.material);
-    if (/^(palm|broadleaf|bush|rock_)/.test(k) || /^cliff_/.test(k) || /^TW_(rock|moss_Rock_Moss|leaf_twig|grass_card)$/.test(mn)) ditherPatch(o.material); });
+    if (/^(palm|broadleaf|bush|rock_|tiki_torch|lantern|pier)/.test(k) || /^cliff_/.test(k) || /^TW_(rock|moss_Rock_Moss|leaf_twig|grass_card)$/.test(mn)) ditherPatch(o.material); });
   for (const o of ORBS) if (collected.has(o.region)) collectOrb(o, true);
   if (collected.size === 8) showFinale();
   refreshOrbHud();
@@ -2997,7 +3105,7 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; } };
+  window.__dbg = { slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
 }
 
 const clock = new THREE.Clock();
@@ -3014,6 +3122,7 @@ function frame() {
   lastDraw = now;
   const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime; uTime.value = t;
   if (window.__ready) {
+    if (focusB) for (const k in input) input[k] = 0;
     if (playing && !boardOpen) { acc += dt; let n = 0; while (acc >= 1 / 120 && n < 8) { prevP.copy(car.p); prevQ.copy(car.q); physicsStep(1 / 120); acc -= 1 / 120; n++; } if (n === 8) acc = 0; gameLogic(dt, t); }
     // draw the buggy between the last two physics steps, so it glides instead of stepping when the frame rate wanders
     const al = clamp(acc * 120, 0, 1), far = prevP.distanceToSquared(car.p) > 4;
@@ -3026,8 +3135,9 @@ function frame() {
     updateParticles(dt);
     for (const f of animated) f(dt, t);
   }
-  updateCamera(dt, t);
-  if (carVisual) uSee.value.set(carVisual.position.x, carVisual.position.y + 0.7, carVisual.position.z, playing && !window.__camOverride ? 1 : 0);
+  updateCamera(dt, t); applyFocus(dt);
+  if (FOCUS.k > 0.3 && FOCUS.from) { uSee.value.set(FOCUS.look.x, FOCUS.look.y, FOCUS.look.z, 1); uSeeR.value = 1.5 * FOCUS.from.sc; }   // reading: clear the way to the board
+  else if (carVisual) { uSee.value.set(carVisual.position.x, carVisual.position.y + 0.7, carVisual.position.z, playing && !window.__camOverride ? 1 : 0); uSeeR.value = 1; }
   dayNight(dt);
   if (window.__camOverride) { const o = window.__camOverride; camera.position.set(o[0], o[1], o[2]); camera.lookAt(o[3], o[4], o[5]); }
   caveLighting(dt);
@@ -3211,7 +3321,7 @@ const ACH_LIST = [
   ['owl', 'Night Owl', 'Was out driving when night fell.'],
   ['fullday', 'Full Day', 'Played through a whole day, sunrise to sunrise.'],
   ['bookworm', 'Bookworm', 'Opened every billboard on the island.'],
-  ['networker', 'Networker', 'Visited all four stone contact statues.'],
+  ['networker', 'Networker', 'Visited every stone contact statue.'],
   ['hired', 'Hired?', 'Opened the resume at Watchtower Ridge.'],
   ['treasure', 'Treasure Hunter', 'Found all 10 hidden treasure chests.'],
 ];
@@ -3256,7 +3366,7 @@ renderAch();
 function achBoard(id) {
   if (id === 'temple') unlock('pilgrim');
   const P = ACH.prog;
-  if (/^st_/.test(id)) { if (!P.statues.includes(id)) P.statues.push(id); if (['st_linkedin', 'st_instagram', 'st_phone', 'st_email'].every((q) => P.statues.includes(q))) unlock('networker'); }
+  if (/^st_/.test(id)) { if (!P.statues.includes(id)) P.statues.push(id); if (['st_linkedin', 'st_instagram', 'st_phone', 'st_email', 'st_github'].every((q) => P.statues.includes(q))) unlock('networker'); }
   const all = [...new Set(BB.filter((b) => !b.statue && !b.plaque).map((b) => b.def.id))];
   if (all.includes(id) && !P.boards.includes(id)) P.boards.push(id);
   if (all.length && all.every((q) => P.boards.includes(q))) unlock('bookworm');
