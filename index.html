@@ -1097,8 +1097,10 @@ function windPatch(mat, amount, grass = false) {
 /* ============================================================ assets */
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
+// bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
+const BUILD = '20261117b';
 async function loadModel(url) {
-  const res = await fetch(url); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
+  const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
 }
 const ASSET_NAMES = ['palm_tree_a', 'palm_tree_b', 'palm_tree_young', 'broadleaf_tree', 'broadleaf_tree_small', 'bush', 'grass_clump',
@@ -1203,7 +1205,7 @@ const nearColliders = (x, z) => colGrid.get(Math.floor(x / CG) * 1000 + Math.flo
 /* ============================================================ terrain */
 let minimapBase = null;
 const texLoader = new THREE.TextureLoader();
-const loadTex = (n, srgb = true, rep = true) => { const t = texLoader.load(`tex/${n}.webp`); if (srgb) t.colorSpace = THREE.SRGBColorSpace; if (rep) t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
+const loadTex = (n, srgb = true, rep = true) => { const t = texLoader.load(`tex/${n}.webp?v=${BUILD}`); if (srgb) t.colorSpace = THREE.SRGBColorSpace; if (rep) t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
 
 function buildTerrain() {
   // mask texture: R sand, G road, B dry grass, A pad
@@ -2141,7 +2143,7 @@ function buildBillboards() {
 // the four giant stone contact statues stand side by side along the loop road at Watchtower Ridge, all facing the road
 function placeStatues() {
   const tower = BB.find((b) => b.def.id === 'watchtower'); if (!tower) return;
-  const defs = BOARDS.filter((d) => d.statue), SC = 0.9, n = defs.length, STEP = 8, n0 = loop.length;   // five statues: smaller, closer together
+  const defs = BOARDS.filter((d) => d.statue && A[d.statue]), SC = 0.9, n = defs.length, STEP = 8, n0 = loop.length;   // five statues: smaller, closer together
   const okAt = (x, z, lv) => (lv > 2 || landAt(x, z)) && slopeNY(x, z) > [0.74, 0.68, 0.62, 0.52, 0.45, 0.3, 0][lv] && heightAt(x, z) > 1.5 && pathDist(x, z) > 5.2 && deckAt(x, z) < -50 &&
     !BB.some((q) => Math.hypot(q.x - x, q.z - z) < 6.5) && !nearColliders(x, z).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + [3.2, 2.6, 2.0, 1.6, 1.4, 1.2, 1.0][lv] && !(lv >= 1 && clearableAt(c.x, c.z)));   // trees and rocks can be cleared
   const i0 = loopIndexAt(Math.atan2(tower.z, tower.x));
