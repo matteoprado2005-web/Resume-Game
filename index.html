@@ -1005,7 +1005,7 @@ let pixelRatio = window.__testPR || Math.min(devicePixelRatio, isTouch ? 1.2 : 1
 const GFX = { minPR: 0.7, maxPR: pixelRatio };
 try { localStorage.removeItem('tidewind-graphics'); } catch (e) {}
 renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight);
-renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; renderer.shadowMap.autoUpdate = false;   // redrawn from frame()
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.45;
 
 const scene = new THREE.Scene();
@@ -1017,13 +1017,14 @@ const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.3, 25
 const SUN_DIR = new V3(-0.86, 0.17, 0.33).normalize();   // direction of the light that casts shadows (sun by day, moon by night)
 const SKY_SUN = new V3(-0.86, 0.17, 0.33).normalize(), SKY_MOON = new V3(0.86, -0.17, -0.33).normalize();
 const sun = new THREE.DirectionalLight('#ffb27a', 3.4);
-sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.layers.enable(1);   // layer 1: shadow-only stand-ins
+sun.castShadow = true; sun.shadow.mapSize.set(1536, 1536); sun.shadow.camera.layers.enable(1);   // layer 1: shadow-only stand-ins
 Object.assign(sun.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55, near: 1, far: 320 });
 sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.05;
 scene.add(sun, sun.target);
 const hemi = new THREE.HemisphereLight('#a39ad0', '#6b5038', 1.5); scene.add(hemi);
 const fill = new THREE.DirectionalLight('#8a95e0', 0.6); fill.position.set(0.6, 0.5, -0.6); scene.add(fill);
 
+let shadowTick = 0;
 const uTime = { value: 0 }, uCar = { value: new V3(0, -100, 0) };
 // see-through: trees, bushes, rocks and the cliff wall dissolve in an ordered dither wherever they come between the camera
 // and the buggy. uSee.xyz is the buggy, uSee.w switches it on while driving. The fragment's world position comes from the
@@ -1067,7 +1068,10 @@ function ditherPatch(m) {
 function windPatch(mat, amount, grass = false) {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = uTime; sh.uniforms.uCar = uCar;
-    sh.vertexShader = 'uniform float uTime;\nuniform vec3 uCar;\n' + sh.vertexShader.replace('#include <project_vertex>', `
+    sh.vertexShader = `uniform float uTime;\nuniform vec3 uCar;\nvarying float vGust;
+      float wh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float wn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(wh(i), wh(i + vec2(1.0, 0.0)), f.x), mix(wh(i + vec2(0.0, 1.0)), wh(i + vec2(1.0, 1.0)), f.x), f.y); }\n` + sh.vertexShader.replace('#include <project_vertex>', `
       vec4 wp = vec4(transformed, 1.0);
       #ifdef USE_INSTANCING
         wp = instanceMatrix * wp;
@@ -1079,26 +1083,42 @@ function windPatch(mat, amount, grass = false) {
       #endif
       org = modelMatrix * org;
       float hf = max(wp.y - org.y, 0.0);
-      float sw = sin(uTime*1.4 + org.x*0.21 + org.z*0.13) + 0.45*sin(uTime*2.9 + org.x*0.5 + wp.y);
-      wp.x += sw * hf * hf * ${amount.toFixed(4)};
-      wp.z += sw * hf * hf * ${(amount * 0.6).toFixed(4)};
+      // one wind for the whole island: it swings slowly, and gusts (big soft patches of noise) roll across the ground with it
+      float wt = mod(uTime, 1800.0), wa = 0.55 + 0.4 * sin(wt * 0.045);
+      vec2 W = vec2(cos(wa), sin(wa));
+      vec2 gp = wp.xz - hf * W;                                   // sample at the root, so a blade bends as one piece
+      float gust = smoothstep(0.28, 0.85, wn((gp - W * wt * 7.0) * 0.055));
+      float swirl = wn((gp - W * wt * 10.0) * 0.22);
+      vGust = gust;
       ${grass ? `
+      // grass lies over in the gusts, the lean turning a little with the swirl so the field shows waves and eddies
+      float ang = (swirl - 0.5) * 1.6;
+      vec2 dir = vec2(W.x * cos(ang) - W.y * sin(ang), W.x * sin(ang) + W.y * cos(ang));
+      float flutter = 0.16 * sin(uTime * 5.5 + dot(gp, vec2(2.3, 1.7)) + hf * 2.0);
+      float lean = (0.18 + 0.95 * gust + 0.22 * swirl + flutter * (0.4 + gust)) * hf * hf * 0.3;
+      wp.xz += dir * lean; wp.y -= lean * lean / max(hf * 2.2, 0.2);   // bending keeps the blade's length: tips sink as they lean
       float keep = 1.0 - smoothstep(48.0, 62.0, distance(org.xz, cameraPosition.xz));   // far grass shrinks away: only a few pixels tall out there
       wp.xyz = org.xyz + (wp.xyz - org.xyz) * keep;
       vec2 dc = wp.xz - uCar.xz; float dd = length(dc);
       float push = (1.0 - smoothstep(0.3, 2.2, dd)) * hf * step(abs(org.y - uCar.y), 2.5);
-      wp.xz += dc / (dd + 0.001) * push * 0.9; wp.y -= push * 0.4;` : ''}
+      wp.xz += dc / (dd + 0.001) * push * 0.9; wp.y -= push * 0.4;` : `
+      float sw = (sin(uTime*1.4 + org.x*0.21 + org.z*0.13) + 0.45*sin(uTime*2.9 + org.x*0.5 + wp.y)) * (0.55 + 0.9 * gust);
+      wp.x += sw * hf * hf * ${amount.toFixed(4)};
+      wp.z += sw * hf * hf * ${(amount * 0.6).toFixed(4)};`}
       vec4 mvPosition = viewMatrix * wp;
       gl_Position = projectionMatrix * mvPosition;`);
+    // a faint sheen where the gust has the blades lying over
+    sh.fragmentShader = 'varying float vGust;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      ${grass ? 'diffuseColor.rgb *= 0.97 + 0.09 * vGust;' : ''}`);
   };
-  mat.customProgramCacheKey = () => 'wind' + amount + grass;
+  mat.customProgramCacheKey = () => 'wind2' + amount + grass;
 }
 
 /* ============================================================ assets */
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261117b';
+const BUILD = '20261117c';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -3122,7 +3142,7 @@ function frame() {
   const now = performance.now();
   if (window.__ready && boardOpen && now - lastDraw < 83) return;
   lastDraw = now;
-  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime; uTime.value = t;
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime; uTime.value = window.__tOverride ?? t;
   if (window.__ready) {
     if (focusB) for (const k in input) input[k] = 0;
     if (playing && !boardOpen) { acc += dt; let n = 0; while (acc >= 1 / 120 && n < 8) { prevP.copy(car.p); prevQ.copy(car.q); physicsStep(1 / 120); acc -= 1 / 120; n++; } if (n === 8) acc = 0; gameLogic(dt, t); }
@@ -3144,9 +3164,12 @@ function frame() {
   if (window.__camOverride) { const o = window.__camOverride; camera.position.set(o[0], o[1], o[2]); camera.lookAt(o[3], o[4], o[5]); }
   caveLighting(dt);
   const st = playing ? camTarget : _tmp.set(0, 0, 0);
-  const texel = 110 / 2048; const sx = Math.round(st.x / texel) * texel, sz = Math.round(st.z / texel) * texel;
+  const R = playing ? 42 : 85; if (sun.shadow.camera.right !== R) { Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R }); sun.shadow.camera.updateProjectionMatrix(); renderer.shadowMap.needsUpdate = true; }
+  const texel = 2 * R / 1536; const sx = Math.round(st.x / texel) * texel, sz = Math.round(st.z / texel) * texel;
   sun.position.set(sx + SUN_DIR.x * 150, st.y + SUN_DIR.y * 150, sz + SUN_DIR.z * 150); sun.target.position.set(sx, st.y, sz);
-  const R = playing ? 55 : 85; if (sun.shadow.camera.right !== R) { Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R }); sun.shadow.camera.updateProjectionMatrix(); }
+  // the shadow map is the costliest pass after the scene itself. While the buggy is parked (or you're reading a board) nothing near
+  // the camera moves fast, so it redraws on every other frame; when driving it redraws every frame so the buggy's shadow never trails
+  shadowTick ^= 1; if (shadowTick || window.__camOverride || car.v.lengthSq() > 2.25 || FOCUS.k > 0 && FOCUS.k < 1) renderer.shadowMap.needsUpdate = true;
   if (window.__diag || DEBUG) { renderer.info.autoReset = false; renderer.info.reset(); }
   const t0 = DEBUG ? performance.now() : 0;
   composer.render();
