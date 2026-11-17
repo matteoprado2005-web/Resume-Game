@@ -114,6 +114,7 @@ body.touch #mapWrap { width: 112px; height: 112px; bottom: auto; top: calc(64px 
 #prompt kbd { font-family: var(--fh); font-weight: 700; color: #fff; background: var(--teal); border-radius: 7px; padding: 2px 9px; }
 #prompt .loc { color: var(--coral); font-family: var(--fh); font-weight: 600; }
 #prompt .tap { display: none; }
+#prompt { gap: 10px; } #prompt button.sl { padding: 10px 14px; color: var(--teal); } #prompt button.sl[hidden] { display: none; }
 body.touch #prompt kbd { display: none; } body.touch #prompt .tap { display: inline; } body.touch #prompt .tap + span { text-transform: lowercase; }
 #board { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20, 12, 8, 0.55); user-select: text; -webkit-user-select: text; touch-action: auto; }
 #board .card { width: min(780px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--wood); border-radius: 18px; padding: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
@@ -253,7 +254,7 @@ body.touch #prompt kbd { display: none; } body.touch #prompt .tap { display: inl
   <div class="grp"><button class="tbtn" data-k="back" aria-label="Brake or reverse">▼</button><button class="tbtn" data-k="fwd" aria-label="Accelerate">▲</button></div>
 </div>
 
-<div class="hud bb" id="prompt" hidden><button id="promptBtn" type="button"><kbd>E</kbd><span class="tap">Tap to</span><span>Read</span><span class="loc" id="promptLoc"></span></button></div>
+<div class="hud bb" id="prompt" hidden><button id="slPrev" class="sl" type="button" aria-label="Previous slide"><span aria-hidden="true">◀</span><kbd>,</kbd></button><button id="promptBtn" type="button"><kbd>E</kbd><span class="tap">Tap to</span><span>Read</span><span class="loc" id="promptLoc"></span></button><button id="slNext" class="sl" type="button" aria-label="Next slide"><kbd>.</kbd><span aria-hidden="true">▶</span></button></div>
 <div id="fade"></div>
 <div id="board" class="bb" hidden role="dialog" aria-modal="true" aria-labelledby="boardName">
   <div class="card">
@@ -424,6 +425,60 @@ const BOARDS = [
 ];
 // Coral Cove bio (approved by Matteo)
 const BIO = 'I’m Matteo Prado. I was born and raised in Olathe, Kansas, and I’m now a marketing senior at the University of Kansas in Lawrence. Over the past four years I’ve worked in B2B and B2C sales across several industries, and I’ve launched two ventures of my own, Kubarshots Media and Water Boys. I’m drawn to work where business and creativity meet, and I’m looking for marketing, finance, and sales internships where I can put consultative selling, digital marketing, and business development to work.';
+// ---------------------------------------------------------------- billboard slideshows
+// Every billboard is a slideshow. The small sign hanging off its right post names the section (one or two words) and flips
+// over whenever the slides move into a new section. Slides use only what the board's reading panel says.
+const cover = (tab) => ({ tab, cover: true });
+const SLIDE_DEFS = {
+  lantern: () => [cover('The Island'),
+    { tab: 'The Idea', title: 'How it started', text: 'Bruno Simon’s driving portfolio showed me a website could be a place you explore, so I built my own island where every stop tells one part of my story.' },
+    { tab: 'Blender', img: 'blender-rock-kit', cap: 'The cliff kit: 25 overgrown rock pieces, modeled in Blender' },
+    { tab: 'Blender', title: 'Made in Blender', text: 'Every structure, tree and texture was made in Blender with Python scripts, then turned into game-ready models.' },
+    { tab: 'Three.js', img: 'island-temple', cap: 'The temple in Moonwell Lagoon, running in the browser' },
+    { tab: 'Three.js', img: 'island-gate', cap: 'The hidden tunnel gate, opening onto the lagoon' },
+    { tab: 'Three.js', title: 'Built from scratch', text: 'I built the island from scratch in Three.js, the 3D web experience you are driving through right now.' },
+    { tab: 'Claude Code', code: ['// trees and rocks dissolve in front of the buggy', 'float fade = (1.0 - smoothstep(rad * 0.5, rad, dd))', '  * smoothstep(0.97, 0.88, tt);', 'ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));', 'if (fade * 0.9 > (BAYER[q.x + q.y * 4] + 0.5) / 16.0)', '  discard;'], cap: 'Claude Code let me test a change, drive it, and fix it in the same sitting.' },
+    { tab: 'Challenges', title: 'The hard parts', list: ['Loading the models under the website’s security rules', 'Hills you can drive up next to cliffs you can’t', 'A hidden tunnel through the mountain to the lagoon'] }],
+  coral: () => [cover('About Me'),
+    { tab: 'About Me', img: 'headshot', fit: 'contain', cap: 'Matteo Prado · Marketing senior · Lawrence, KS' },
+    { tab: 'Roots', title: 'Olathe to Lawrence', text: 'Born and raised in Olathe, Kansas, and now a marketing senior at the University of Kansas in Lawrence.' },
+    { tab: 'Sales', title: 'Four years of sales', text: 'B2B and B2C sales across several industries.' },
+    { tab: 'Ventures', title: 'Two ventures of my own', list: ['Kubarshots Media', 'Water Boys'] },
+    { tab: 'Looking For', title: 'Internships', text: 'Marketing, finance, and sales internships where I can put consultative selling, digital marketing, and business development to work.' }],
+  driftwood: () => [cover('The Academy'),
+    { tab: 'Education', title: 'University of Kansas', text: 'Bachelor of Science in Marketing · Minor in Professional Sales · expected May 2027' },
+    { tab: 'Education', title: 'Johnson County Community College', text: 'Associate of Applied Science in Business Marketing · May 2025' },
+    ...CERTS.map(([n, d, f]) => ({ tab: 'Certificates', img: 'cert-' + f.replace(/\.\w+$/, ''), fit: 'contain', cap: n + ' · ' + d.split(' · ')[0] }))],
+  gulls: () => [cover('Career'),
+    ...JOBS.map(([r, c, d, b], i) => ({ tab: ['Pro Moving', 'Champion Bath', 'Crunch Fitness', 'Water Boys'][i] || 'Career', title: r, sub: c + ' · ' + d, list: b })),
+    { tab: 'And More', title: 'Also', text: 'Brand Ambassador / Marketing at NOCA / Alcolo. Earlier: Sonic, Chipotle, Marco’s Pizza.' }],
+  hermit: () => [cover('Skills'), ...SKILLS.map(([g, list]) => ({ tab: g, title: g, chips: list }))],
+  windward: () => [cover('Kubarshots'),
+    { tab: 'Kubarshots', title: 'Kubarshots Media', text: 'Founder & Social Media Manager · since October 2024' },
+    { tab: 'Nightlife', title: 'KU nightlife & fraternity photography', text: '13 fraternities and 5 premier Lawrence venues, including Bullwinkles, Jayhawk Café and Logie’s on Mass' },
+    { tab: 'Fetii', title: 'Fetii', text: 'Contract with the national event-coordination brand for fraternity events' },
+    { tab: 'DRINKNOCA', title: 'DRINKNOCA', text: 'Marketing materials reaching 200,000+' },
+    { tab: 'Instagram', title: '@kubarshots', text: 'See the photos on Instagram: press E for the link.' }],
+  palm: () => [cover('Beyond'),
+    ...[['Fitness', 'Fitness'], ['Finance', 'Finance & investing'], ['Fashion', 'Fashion & modeling'], ['Music', 'Music production', 'Learning FL Studio'], ['Technology', 'Technology & creative experimentation']].map(([tab, title, text]) => ({ tab, title, text }))],
+  watchtower: () => [cover('Lookout'),
+    { tab: 'Resume', title: 'My resume', text: 'Press E to download it as a PDF.' },
+    { tab: 'Connect', title: 'The stone statues', text: 'Drive up to the statues on this ridge to reach me on LinkedIn, Instagram, phone or email.' },
+    { tab: 'Open To', title: 'Let’s connect', text: 'I’m open to marketing, finance, and sales internships.' }],
+  lagoon: () => [cover('Mission'),
+    { tab: 'Mission', title: 'My mission', text: 'I want to help brands grow by pairing real conversations with creative work people remember.' },
+    { tab: 'Mission', title: 'Every stop', text: 'Every stop on this island is part of that: the sales experience, the photography, and the curiosity to build something new, like this island.' }],
+  bridge: () => { const ring = BOARDS.filter((b) => b.ring), out = [cover('Crossroads')];
+    for (let i = 0; i < ring.length; i += 4) out.push({ tab: 'Roads', title: 'Pick a place', list: ring.slice(i, i + 4).map((b) => `${b.compass || ''}  ${b.region}: ${b.title}`) });
+    return out; },
+  tunnel: () => [cover('Gallery'),
+    { tab: 'Blender', img: 'blender-temple', fit: 'contain', cap: 'Temple of the Sunken Moon: tunnel, gates, idols, pillars and shrine' },
+    { tab: 'Blender', img: 'blender-statues', fit: 'contain', cap: 'The contact statues: LinkedIn, Instagram, phone and email, carved in stone' }],
+  temple: () => [cover('Thank You'),
+    { tab: 'Thank You', title: 'Thank you, Steven', text: 'The music you hear across Tidewind Isle owes a huge amount to Steven Ibrahim.' },
+    { tab: 'The Music', title: 'In time with the island', text: 'The island keeps time to the track: the sun rises as the song begins, and night falls halfway through.' },
+    { tab: 'Listen', title: 'Steven Ibrahim', text: 'Press E for Spotify and LinkedIn.' }],
+};
 
 
 const V3 = THREE.Vector3;
@@ -1977,29 +2032,34 @@ const compassFrom = (fx, fz, tx, tz) => COMPASS[(Math.round(Math.atan2(tz - fz, 
 
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 function wrapLines(ctx, text, maxW) { const out = []; let line = ''; for (const w of text.split(' ')) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t; } if (line) out.push(line); return out; }
-// the billboard face: location name in the dark header strip, the purpose in coral, a one-line teaser, and the prompt
-function boardTexture(def) {
-  const W = 1024, Hh = 640, cv = document.createElement('canvas'); cv.width = W; cv.height = Hh; const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#7A4B2A'; roundRect(ctx, 0, 0, W, Hh, 46); ctx.fill();
-  ctx.fillStyle = '#5E3820'; roundRect(ctx, 22, 22, W - 44, 112, 30); ctx.fill();
-  ctx.fillStyle = '#FBF3E4'; roundRect(ctx, 22, 148, W - 44, Hh - 170, 30); ctx.fill();
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#FBF3E4'; ctx.font = '600 50px Fredoka, Nunito, sans-serif'; try { ctx.letterSpacing = '7px'; } catch (e) {}
-  ctx.fillText(def.region.toUpperCase(), W / 2, 80);
-  try { ctx.letterSpacing = '0px'; } catch (e) {}
-  ctx.fillStyle = '#C2462F'; ctx.font = '700 92px Fredoka, Nunito, sans-serif'; ctx.fillText(def.title, W / 2, 262);
-  ctx.fillStyle = '#2B2420'; ctx.font = '700 40px Nunito, sans-serif';
-  wrapLines(ctx, def.teaser, 860).slice(0, 2).forEach((l, i) => ctx.fillText(l, W / 2, 352 + i * 50));
-  ctx.fillStyle = '#1F5F66'; roundRect(ctx, W / 2 - 210, 480, 420, 86, 43); ctx.fill();
-  ctx.fillStyle = '#FFFFFF'; ctx.font = '600 38px Fredoka, Nunito, sans-serif'; ctx.fillText(isTouch ? 'TAP TO READ' : 'PRESS E TO READ', W / 2, 525);
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
-}
 const woodMat = new THREE.MeshStandardMaterial({ color: '#7A4B2A', roughness: 0.85 });
 const woodDark = new THREE.MeshStandardMaterial({ color: '#5E3820', roughness: 0.9 });
-function boardMesh(def, scale = 1, posts = true) {
-  const g = new THREE.Group(), tex = boardTexture(def), base = posts ? 1.55 : 0;
+const BOARD_FACES = [];
+function boardMesh(def, scale = 1, posts = true, signTop = false) {
+  const g = new THREE.Group(), base = posts ? 1.55 : 0;
+  // the face is a canvas the slideshow redraws
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 640;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   const face = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.25), new THREE.MeshStandardMaterial({ map: tex, color: '#d9d2c6', emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: 0.16, roughness: 0.95 }));
-  face.position.set(0, base + 1.125, 0.085); g.add(face);
+  face.position.set(0, base + 1.125, 0.085); g.add(face); BOARD_FACES.push(face);
+  // the section sign hangs from an arm off the right post, hinged along its top edge so it can flip over
+  const tcv = document.createElement('canvas'); tcv.width = 512; tcv.height = 176;
+  const ttex = new THREE.CanvasTexture(tcv); ttex.colorSpace = THREE.SRGBColorSpace; ttex.anisotropy = 4;
+  const ax = posts ? 1.45 : 1.86, ay = base + 2.12, pivot = new THREE.Group(); let py = -0.45;
+  if (signTop) {
+    // where the sides are hemmed in, the sign stands on the roof instead, turning about its middle
+    pivot.position.set(0, base + 2.4 + 0.5, 0.04); py = 0;
+    for (const cxk of [-0.58, 0.58]) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.24, 0.06), woodDark); st.position.set(cxk, base + 2.52, 0.04); g.add(st); }
+  } else {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.09, 0.09), woodDark); arm.position.set(ax + 0.92, ay, posts ? -0.12 : 0); g.add(arm);
+    pivot.position.set(ax + 1.05, ay - 0.05, posts ? -0.12 : 0);
+    for (const cxk of [-0.58, 0.58]) { const ch = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.16, 0.035), woodDark); ch.position.set(cxk, -0.08, 0); pivot.add(ch); }
+  }
+  g.add(pivot);
+  const plank = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.58, 0.07), woodMat); plank.position.set(0, py, 0); pivot.add(plank);
+  const tm = new THREE.MeshStandardMaterial({ map: ttex, color: '#e2dacd', emissiveMap: ttex, emissive: '#ffffff', emissiveIntensity: 0.14, roughness: 0.9 });
+  for (const side of [1, -1]) { const tf = new THREE.Mesh(new THREE.PlaneGeometry(1.56, 0.536), tm); tf.position.set(0, py, 0.037 * side); if (side < 0) tf.rotation.y = Math.PI; pivot.add(tf); }
+  g.userData.sl = { cv, ctx: cv.getContext('2d'), tex, tctx: tcv.getContext('2d'), ttex, pivot, face, i: 0, t: 0, hold: 0, flip: null };
   const back = new THREE.Mesh(new THREE.BoxGeometry(3.72, 2.37, 0.14), woodMat); back.position.set(0, base + 1.125, 0); g.add(back);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(3.98, 0.12, 0.42), woodDark); roof.position.set(0, base + 2.34, 0.04); g.add(roof);
   if (posts) for (const sx of [-1.45, 1.45]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, base + 2.4, 8), woodDark); p.position.set(sx, (base + 2.4) / 2 - 0.15, -0.12); g.add(p); }
@@ -2024,10 +2084,11 @@ function findSpot(cx, cz, r0, r1, extra = () => true) {
 }
 function placeBoard(def, spot, opts = {}) {
   const { x, z, fx, fz } = spot, y = opts.y ?? groundAt(x, z) - 0.05, sc = opts.scale ?? 1;
-  const m = boardMesh(def, sc, opts.posts !== false); m.position.set(x, y, z); m.rotation.y = Math.atan2(fx, fz); world.add(m);
+  const m = boardMesh(def, sc, opts.posts !== false, !!opts.signTop); m.position.set(x, y, z); m.rotation.y = Math.atan2(fx, fz); world.add(m);
+  const sl = m.userData.sl; sl.slides = SLIDE_DEFS[def.id] ? null : [cover(def.title)];
   if (opts.posts !== false) for (const s of [-1, 1]) addCollider(x + fz * 1.45 * s * sc, z - fx * 1.45 * s * sc, 0.3, y + 5);
   const d = opts.spawnDist ?? 7, spawn = { x: x + fx * d, z: z + fz * d, yaw: Math.atan2(fz, -fx) };
-  const b = { def, x, y, z, f: [fx, fz], spawn, cave: !!opts.cave }; BB.push(b); return b;
+  const b = { def, x, y, z, f: [fx, fz], spawn, cave: !!opts.cave, sl }; sl.face.userData.board = b; BB.push(b); return b;
 }
 function buildBillboards() {
   for (const def of BOARDS) {
@@ -2048,7 +2109,7 @@ function buildBillboards() {
     if (def.id === 'temple') {
       // standing on the first step of the temple, facing the causeway landing, leaving the ring around the temple clear
       const C = CAVE.C, ux = -CAVE.dx, uz = -CAVE.dz, u = 4.6;     // +u points from the shrine toward the causeway
-      placeBoard(def, { x: C.x + ux * u, z: C.z + uz * u, fx: ux, fz: uz }, { y: 0.82, scale: 0.55, spawnDist: 4, posts: true });   // on the first step
+      placeBoard(def, { x: C.x + ux * u, z: C.z + uz * u, fx: ux, fz: uz }, { y: 0.82, scale: 0.55, spawnDist: 4, posts: true, signTop: true });   // on the first step
     }
     if (def.id === 'spotify') {
       // the plaque itself is placed by buildTemple; this makes it interactive
@@ -2059,6 +2120,7 @@ function buildBillboards() {
   placeStatues();
   const bridge = BB.find((b) => b.def.id === 'bridge'), from = bridge || BRIDGE;
   for (const b of BB) if (b.def.ring) b.def.compass = compassFrom(from.x, from.z, b.x, b.z);
+  for (const b of BB) if (b.sl) { if (!b.sl.slides) b.sl.slides = SLIDE_DEFS[b.def.id](); drawSlide(b); drawTab(b, b.sl.slides[0].tab); }
   const lb = BB.find((b) => b.def.id === 'lantern'); SPAWN = pierSpawn() || (lb ? lb.spawn : { x: BRIDGE.x, z: BRIDGE.z, yaw: bridgeYaw(), y: BRIDGE.y });
   boardTorches();
 }
@@ -2212,6 +2274,18 @@ async function saveResume(href) {
 }
 $('lightbox').addEventListener('click', () => { $('lightbox').hidden = true; });
 $('promptBtn').addEventListener('click', () => { if (nearBoard) openBoard(nearBoard.def.id); });
+$('slPrev').addEventListener('click', () => { if (nearBoard && nearBoard.sl) slideTo(nearBoard, nearBoard.sl.i - 1, true); });
+$('slNext').addEventListener('click', () => { if (nearBoard && nearBoard.sl) slideTo(nearBoard, nearBoard.sl.i + 1, true); });
+// click or tap a billboard: its left half goes back a slide, its right half forward
+{ const rc = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
+  canvas.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6 || !playing || anyOverlay()) return; down = null;
+    const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    rc.setFromCamera(ndc, camera); const hit = rc.intersectObjects(BOARD_FACES, false)[0];
+    if (hit && hit.distance < 40 && hit.object.userData.board) slideTo(hit.object.userData.board, hit.object.userData.board.sl.i + (hit.uv.x < 0.5 ? -1 : 1), true);
+  });
+}
 function toggleMenu(open) { const m = $('menu'), o = open ?? m.hidden; m.hidden = !o; $('menuBtn').setAttribute('aria-expanded', String(o)); }
 $('menuBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(); });
 $('menu').addEventListener('click', (e) => {
@@ -2228,6 +2302,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Escape') { if (!$('lightbox').hidden) $('lightbox').hidden = true; else if (boardOpen) closeBoard(); else if (!$('menu').hidden) toggleMenu(false); else return; e.stopImmediatePropagation(); return; }
   if (anyOverlay()) { e.stopImmediatePropagation(); return; }
   if (e.code === 'KeyE' && !e.repeat && nearBoard && playing) { e.preventDefault(); e.stopImmediatePropagation(); openBoard(nearBoard.def.id); }
+  if ((e.code === 'Comma' || e.code === 'Period') && nearBoard && nearBoard.sl && playing) { e.preventDefault(); e.stopImmediatePropagation(); slideTo(nearBoard, nearBoard.sl.i + (e.code === 'Period' ? 1 : -1), true); }
 }, true);
 // which billboard is the buggy parked by?
 function updateBoardPrompt() {
@@ -2239,6 +2314,7 @@ function updateBoardPrompt() {
   }
   if (best !== nearBoard) { nearBoard = best; if (best) $('promptLoc').textContent = '· ' + best.def.region; }
   $('prompt').hidden = !nearBoard || !!boardOpen;
+  const many = !!(nearBoard && nearBoard.sl && nearBoard.sl.slides.length > 1); $('slPrev').hidden = $('slNext').hidden = !many;
 }
 
 /* spirit orbs */
@@ -2631,6 +2707,129 @@ function chime() {
   const ctx = audio.ctx; if (!ctx || !audio.on) return;
   [659.25, 783.99, 987.77, 1318.5, 1567.98].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'triangle'; o.frequency.value = f; const t0 = ctx.currentTime + i * 0.11; g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.16, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.4); o.connect(g); g.connect(audio.master); o.start(t0); o.stop(t0 + 1.5); });
 }
+// a soft wooden tick when you change a slide yourself
+function clickSfx() {
+  const ctx = audio.ctx; if (!ctx || !audio.on) return;
+  const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime; o.type = 'triangle'; o.frequency.setValueAtTime(520, t0); o.frequency.exponentialRampToValueAtTime(260, t0 + 0.08);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.18, t0 + 0.005); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12); o.connect(g); g.connect(audio.master); o.start(t0); o.stop(t0 + 0.14);
+}
+// the slide images load on first use; a board showing one redraws when it arrives
+const SLIDE_IMG = new Map();
+function slideImg(name) {
+  if (!SLIDE_IMG.has(name)) {
+    const im = new Image(); im.decoding = 'async';
+    im.onload = () => { for (const b of BB) if (b.sl && b.sl.slides[b.sl.i].img === name) drawSlide(b); };
+    im.src = `portfolio/slides/${name}.jpg`; SLIDE_IMG.set(name, im);
+  }
+  return SLIDE_IMG.get(name);
+}
+const FONT_H = 'Fredoka, Nunito, sans-serif', FONT_B = 'Nunito, sans-serif';
+// wrap to at most `lines` lines, stepping the size down until it does; returns the lines and the size used
+function wrapFit(ctx, text, weight, size, family, maxW, lines) {
+  let s = size, out;
+  do { ctx.font = `${weight} ${s}px ${family}`; out = wrapLines(ctx, text, maxW); s -= 2; } while (out.length > lines && s > 18);
+  return { out: out.slice(0, lines), size: s + 2 };
+}
+function fitFont(ctx, text, weight, size, family, maxW) { let s = size; do { ctx.font = `${weight} ${s}px ${family}`; s -= 2; } while (ctx.measureText(text).width > maxW && s > 18); return s + 2; }
+// the face: the board's name in the dark header, the slide in the cream panel, the page dots under it
+function drawSlide(b) {
+  const { ctx, slides, i } = b.sl, def = b.def, sl = slides[i], W = 1024, H = 640;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#7A4B2A'; roundRect(ctx, 0, 0, W, H, 46); ctx.fill();
+  ctx.fillStyle = '#5E3820'; roundRect(ctx, 22, 22, W - 44, 104, 30); ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#FBF3E4'; try { ctx.letterSpacing = '6px'; } catch (e) {}
+  fitFont(ctx, def.title.toUpperCase(), 600, 54, FONT_H, W - 120); ctx.fillText(def.title.toUpperCase(), W / 2, 76);
+  try { ctx.letterSpacing = '0px'; } catch (e) {}
+  const px = 22, py = 140, pw = W - 44, ph = H - 140 - 62;           // the cream panel
+  ctx.fillStyle = '#FBF3E4'; roundRect(ctx, px, py, pw, ph, 28); ctx.fill();
+  ctx.save(); roundRect(ctx, px, py, pw, ph, 28); ctx.clip();
+  const cx = W / 2;
+  if (sl.cover) {
+    ctx.fillStyle = '#7A4B2A'; ctx.font = `600 34px ${FONT_H}`; try { ctx.letterSpacing = '6px'; } catch (e) {}
+    ctx.fillText(def.region.toUpperCase(), cx, py + 72); try { ctx.letterSpacing = '0px'; } catch (e) {}
+    ctx.fillStyle = '#C2462F'; fitFont(ctx, def.title, 700, 92, FONT_H, pw - 80); ctx.fillText(def.title, cx, py + 168);
+    ctx.fillStyle = '#2B2420'; ctx.font = `700 38px ${FONT_B}`;
+    wrapLines(ctx, def.teaser || '', pw - 140).slice(0, 2).forEach((l, k) => ctx.fillText(l, cx, py + 262 + k * 48));
+    ctx.fillStyle = '#1F5F66'; ctx.font = `700 26px ${FONT_B}`; ctx.fillText(isTouch ? 'Tap READ for the full story' : 'Press E for the full story', cx, py + ph - 38);
+  } else if (sl.img) {
+    const im = slideImg(sl.img), capH = sl.cap ? 84 : 0;
+    if (im.complete && im.naturalWidth) {
+      const aw = pw, ah = ph - capH, s = sl.fit === 'contain' ? Math.min(aw / im.naturalWidth, ah / im.naturalHeight) : Math.max(aw / im.naturalWidth, ah / im.naturalHeight);
+      const dw = im.naturalWidth * s, dh = im.naturalHeight * s;
+      if (sl.fit === 'contain') { ctx.fillStyle = '#E9DFCB'; ctx.fillRect(px, py, pw, ah); }
+      ctx.save(); ctx.beginPath(); ctx.rect(px, py, aw, ah); ctx.clip(); ctx.drawImage(im, px + (aw - dw) / 2, py + (ah - dh) / 2, dw, dh); ctx.restore();
+    } else { ctx.fillStyle = '#E9DFCB'; ctx.fillRect(px, py, pw, ph - capH); }
+    if (sl.cap) { ctx.fillStyle = '#5E3820'; ctx.fillRect(px, py + ph - capH, pw, capH); ctx.fillStyle = '#FBF3E4';
+      const { out, size } = wrapFit(ctx, sl.cap, 700, 32, FONT_B, pw - 70, 2); out.forEach((l, k) => ctx.fillText(l, cx, py + ph - capH / 2 + (k - (out.length - 1) / 2) * (size + 4))); }
+  } else if (sl.code) {
+    ctx.fillStyle = '#1D1A24'; ctx.fillRect(px, py, pw, ph);
+    ctx.textAlign = 'left'; ctx.font = `600 27px ui-monospace, Menlo, Consolas, monospace`;
+    sl.code.forEach((ln, k) => { ctx.fillStyle = ln.trim().startsWith('//') ? '#8E86A8' : '#F2E6CF'; ctx.fillText(ln, px + 46, py + 62 + k * 44); });
+    ctx.textAlign = 'center';
+    if (sl.cap) { ctx.fillStyle = '#C2462F'; ctx.fillRect(px, py + ph - 74, pw, 74); ctx.fillStyle = '#FFFFFF'; fitFont(ctx, sl.cap, 700, 30, FONT_B, pw - 60); ctx.fillText(sl.cap, cx, py + ph - 37); }
+  } else {
+    let y = py + 74;
+    ctx.fillStyle = '#C2462F'; fitFont(ctx, sl.title, 700, 64, FONT_H, pw - 90); ctx.fillText(sl.title, cx, y); y += 62;
+    if (sl.sub) { ctx.fillStyle = '#7A4B2A'; fitFont(ctx, sl.sub, 700, 30, FONT_B, pw - 90); ctx.fillText(sl.sub, cx, y); y += 54; } else y += 14;
+    ctx.fillStyle = '#2B2420';
+    if (sl.text) { ctx.font = `700 ${sl.text.length > 120 ? 34 : 40}px ${FONT_B}`; const lh = sl.text.length > 120 ? 46 : 54; wrapLines(ctx, sl.text, pw - 120).slice(0, 5).forEach((l, k) => ctx.fillText(l, cx, y + 20 + k * lh)); }
+    if (sl.list) { ctx.textAlign = 'left'; let yy = y + 18; const room = py + ph - 24 - yy, per = room / sl.list.length;
+      for (const t of sl.list) {
+        const { out, size } = wrapFit(ctx, t, 700, 34, FONT_B, pw - 160, per > 80 ? 2 : 1), lh = size + 8;
+        ctx.fillStyle = '#1F5F66'; ctx.beginPath(); ctx.arc(px + 64, yy, 9, 0, 6.3); ctx.fill(); ctx.fillStyle = '#2B2420';
+        out.forEach((l, k) => ctx.fillText(l, px + 90, yy + k * lh)); yy += Math.max(out.length * lh + 18, 60);
+      }
+      ctx.textAlign = 'center'; }
+    if (sl.chips) {   // chips flow in centred rows
+      ctx.font = `800 30px ${FONT_B}`; const rows = [[]]; let w = 0, max = pw - 100;
+      for (const c of sl.chips) { const cw = ctx.measureText(c).width + 44; if (w + cw > max && rows[rows.length - 1].length) { rows.push([]); w = 0; } rows[rows.length - 1].push([c, cw]); w += cw + 14; }
+      rows.forEach((r, k) => { let x = cx - (r.reduce((a, [, cw]) => a + cw + 14, -14)) / 2; const yy = y + 16 + k * 70;
+        for (const [c, cw] of r) { ctx.fillStyle = '#1F5F66'; roundRect(ctx, x, yy - 26, cw, 52, 26); ctx.fill(); ctx.fillStyle = '#FFFFFF'; ctx.fillText(c, x + cw / 2, yy + 1); x += cw + 14; } });
+    }
+  }
+  ctx.restore();
+  // page dots, and the arrows that say there's more
+  const n = slides.length, gap = Math.min(30, 560 / n), x0 = cx - (gap * (n - 1)) / 2, fy = H - 32;
+  for (let k = 0; k < n; k++) { ctx.fillStyle = k === i ? '#FBF3E4' : 'rgba(251,243,228,0.38)'; ctx.beginPath(); ctx.arc(x0 + k * gap, fy, k === i ? 9 : 6, 0, 6.3); ctx.fill(); }
+  ctx.fillStyle = '#FBF3E4'; ctx.font = `700 34px ${FONT_H}`; ctx.fillText('◀', 70, fy); ctx.fillText('▶', W - 70, fy);
+  b.sl.tex.needsUpdate = true;
+}
+// the hanging sign: one or two words on a plank
+function drawTab(b, word) {
+  const { tctx } = b.sl, W = 512, H = 176;
+  tctx.clearRect(0, 0, W, H);
+  tctx.fillStyle = '#C2462F'; roundRect(tctx, 0, 0, W, H, 26); tctx.fill();
+  tctx.fillStyle = '#A8381F'; roundRect(tctx, 10, 10, W - 20, H - 20, 20); tctx.fill();
+  tctx.textAlign = 'center'; tctx.textBaseline = 'middle'; tctx.fillStyle = '#FBF3E4';
+  fitFont(tctx, word.toUpperCase(), 700, 74, FONT_H, W - 60); tctx.fillText(word.toUpperCase(), W / 2, H / 2 + 4);
+  b.sl.ttex.needsUpdate = true;
+}
+function slideTo(b, i, manual) {
+  const sl = b.sl; if (!sl) return; const n = sl.slides.length; i = ((i % n) + n) % n;
+  if (i === sl.i) return;
+  const prevTab = sl.slides[sl.i].tab; sl.i = i; sl.t = 0; if (manual) sl.hold = 14;
+  drawSlide(b);
+  if (sl.slides[i].tab !== prevTab) sl.flip = { t: 0, word: sl.slides[i].tab, swapped: false };
+  if (manual) clickSfx();
+}
+// slides move on by themselves near the buggy; a flip turns the sign edge-on, swaps its words, and swings it back
+function slideTick(dt) {
+  for (const b of BB) {
+    const sl = b.sl; if (!sl) continue;
+    if (sl.flip) {
+      const f = sl.flip; f.t += dt / 0.5;
+      if (f.t >= 0.5 && !f.swapped) { drawTab(b, f.word); f.swapped = true; }
+      sl.pivot.rotation.x = f.t < 0.5 ? -Math.PI / 2 * (f.t / 0.5) : Math.PI / 2 * (1 - Math.min(1, (f.t - 0.5) / 0.5));
+      if (f.t >= 1) { sl.pivot.rotation.x = 0; sl.flip = null; }
+    }
+    if (boardOpen || sl.slides.length < 2) continue;
+    const d = Math.hypot(car.p.x - b.x, car.p.z - b.z);
+    if (d > 45) continue;
+    if (sl.hold > 0) { sl.hold -= dt; continue; }
+    if ((sl.t += dt) > (sl.slides[sl.i].img ? 6 : 5.5)) slideTo(b, sl.i + 1, false);
+  }
+}
 const VOL = { music: 0.7, fx: 0.45 };
 try { const v = JSON.parse(localStorage.getItem('tidewind-volume-v2') || 'null'); if (v && typeof v.music === 'number') Object.assign(VOL, v); } catch (e) {}
 const music = new Audio('music/island_theme.mp3'); music.loop = true; music.preload = 'auto';   // the island theme, by Steven Ibrahim
@@ -2798,7 +2997,7 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; } };
+  window.__dbg = { slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; } };
 }
 
 const clock = new THREE.Clock();
@@ -3130,6 +3329,7 @@ function gameLogic(dt, t) {
   if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').classList.remove('show'); }
   updateBoardPrompt();
   if (respawning <= 0) { achTick(dt); chestTick(dt, t); }
+  slideTick(dt);
   if ((mapT += dt) > 1 / 15) { mapT = 0; drawMap(); }   // the minimap is redrawn 15 times a second, plenty for a dot on a map
 }
 let mapT = 1;
