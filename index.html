@@ -1054,7 +1054,7 @@ function ditherPatch(m) {
         float tt = clamp(dot(wPos - cameraPosition, seg) / max(dot(seg, seg), 1e-4), 0.0, 1.0);
         float dd = length(wPos - cameraPosition - seg * tt);
         float rad = mix(1.1, 2.7, tt) * uSeeR;
-        float fade = (1.0 - smoothstep(rad * 0.5, rad, dd)) * (uSeeR > 1.01 ? smoothstep(0.995, 0.975, tt) : smoothstep(0.97, 0.88, tt)) * smoothstep(0.02, 0.1, tt);
+        float fade = (1.0 - smoothstep(rad * 0.5, rad, dd)) * (uSeeR > 1.01 ? smoothstep(0.995, 0.982, tt) : smoothstep(0.97, 0.88, tt)) * smoothstep(0.02, 0.1, tt);
         const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
         ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));
         if (fade * 0.9 > (BAYER[q.x + q.y * 4] + 0.5) / 16.0) discard;
@@ -1864,8 +1864,8 @@ function buildTorches() {
   const poleG = new THREE.CylinderGeometry(0.055, 0.07, 2.1, 7); poleG.translate(0, 1.05, 0);
   const cupG = new THREE.CylinderGeometry(0.16, 0.1, 0.32, 9); cupG.translate(0, 2.15, 0);
   const bandG = new THREE.CylinderGeometry(0.085, 0.085, 0.06, 7);
-  const bamboo = new THREE.MeshStandardMaterial({ color: '#8a6a3c', roughness: 0.75 });
-  const weave = new THREE.MeshStandardMaterial({ map: A.hut_stilt ? null : null, color: '#5a4126', roughness: 0.9 });
+  const bamboo = new THREE.MeshStandardMaterial({ color: '#8a6a3c', roughness: 0.75, name: 'TW_tiki' });
+  const weave = new THREE.MeshStandardMaterial({ map: A.hut_stilt ? null : null, color: '#5a4126', roughness: 0.9, name: 'TW_tiki' });
   const poles = new THREE.InstancedMesh(poleG, bamboo, tikis.length), cups = new THREE.InstancedMesh(cupG, weave, tikis.length), bands = new THREE.InstancedMesh(bandG, weave, tikis.length * 3);
   const M = new THREE.Matrix4();
   tikis.forEach((t, i) => {
@@ -3096,7 +3096,7 @@ async function boot() {
   }
   world.traverse((o) => { if (!o.isMesh) return; const k = o.userData.kit || '', mn = o.material && o.material.name || '';
     if (k === 'grass_clump' || k === 'bush' || /grass_card|leaf_twig/.test(mn)) grassLightPatch(o.material);
-    if (/^(palm|broadleaf|bush|rock_|tiki_torch|lantern|pier)/.test(k) || /^cliff_/.test(k) || /^TW_(rock|moss_Rock_Moss|leaf_twig|grass_card)$/.test(mn)) ditherPatch(o.material); });
+    if (/^(palm|broadleaf|bush|rock_|tiki_torch|lantern|pier)/.test(k) || /^cliff_/.test(k) || /^TW_(rock|moss_Rock_Moss|leaf_twig|grass_card|tiki|wood_planks|wood_dark)$/.test(mn)) ditherPatch(o.material); });
   for (const o of ORBS) if (collected.has(o.region)) collectOrb(o, true);
   if (collected.size === 8) showFinale();
   refreshOrbHud();
