@@ -1130,7 +1130,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261117g';
+const BUILD = '20261117h';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -2452,19 +2452,6 @@ const readNear = () => { const b = markB || nearBoard; if (!b) return; if (reada
    spark with the name sliding out to its left; E, a click or a tap opens what it belongs to. */
 const MARKS = [], MARK_MESHES = [];
 let markB = null, hoverMark = null;
-const _markTex = {};
-function markTex(open) {
-  if (_markTex[open]) return _markTex[open];
-  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
-  g.translate(128, 128); g.rotate(Math.PI / 4);
-  const d = (r, rr) => { g.beginPath(); g.roundRect(-r, -r, r * 2, r * 2, rr); };
-  d(78, 20); g.fillStyle = open ? '#F0CD72' : '#1F5F66'; g.fill();
-  d(64, 14); g.fillStyle = open ? '#1F5F66' : '#F0CD72'; g.fill();
-  g.rotate(-Math.PI / 4);
-  if (open) { g.fillStyle = '#F0CD72'; g.beginPath(); g.moveTo(0, -60); g.quadraticCurveTo(9, -9, 60, 0); g.quadraticCurveTo(9, 9, 0, 60); g.quadraticCurveTo(-9, 9, -60, 0); g.quadraticCurveTo(-9, -9, 0, -60); g.fill();
-    g.fillStyle = '#1F5F66'; g.beginPath(); g.arc(0, 0, 9, 0, 7); g.fill(); }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return (_markTex[open] = t);
-}
 function labelTex(text) {
   const c = document.createElement('canvas'), g = c.getContext('2d'), font = `700 64px ${FONT_B}`;
   g.font = font; const w = Math.ceil(g.measureText(text.toUpperCase()).width) + 150 + 70; c.width = w; c.height = 112;
@@ -2477,36 +2464,53 @@ function labelTex(text) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return { t, aspect: w / 112 };
 }
 function buildMarks() {
-  const mk = (map) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false, fog: false, polygonOffset: true, polygonOffsetFactor: -4 });
-  const sq = new THREE.PlaneGeometry(1, 1);
+  // a faceted gem (a tall octahedron) hovering over the ground in front of each board and statue, turning slowly
+  const gemGeo = new THREE.OctahedronGeometry(0.42, 0); gemGeo.scale(1, 1.35, 1);
+  const edgeGeo = new THREE.EdgesGeometry(gemGeo);
+  const lg = new THREE.PlaneGeometry(1, 1); lg.translate(-0.5, 0, 0);       // the banner grows leftward from its right edge
   for (const b of BB) {
     if (!b.mark) continue;
-    const [x, y, z] = b.mark, [fx, fz] = b.f;
-    const g = new THREE.Group(); g.position.set(x, y - 0.22, z);
-    g.rotation.set(0, Math.atan2(fx, fz), 0);                       // local +z points at the road, so viewers see local +x as their right
-    const tilt = new THREE.Group(); tilt.rotation.x = -Math.PI / 2 + 0.62; tilt.position.y = 0.55; g.add(tilt);   // stands on the ground, leaning back toward the road so it reads from far off
-    const dia = new THREE.Mesh(sq, mk(markTex(false))); dia.scale.setScalar(1.7); dia.renderOrder = 4; dia.userData.markB = b; tilt.add(dia);
-    const L = labelTex(b.def.title), lg = new THREE.PlaneGeometry(1, 1); lg.translate(-0.5, 0, 0);
-    const lab = new THREE.Mesh(lg, mk(L.t)); lab.renderOrder = 5; lab.position.set(-0.55, 1.75, 0.05); lab.scale.set(0.0001, 0.7, 1); g.add(lab);   // the name stands up beside it, clear of the grass and the buggy
-    scene.add(g); MARK_MESHES.push(dia);
-    MARKS.push({ b, g, dia, lab, w: 0.7 * L.aspect, k: 0 });
+    const [x, y, z] = b.mark;
+    const g = new THREE.Group(); g.position.set(x, y + 0.95, z); scene.add(g);
+    const mat = new THREE.MeshStandardMaterial({ color: '#F0CD72', emissive: '#F0CD72', emissiveIntensity: 0.35, roughness: 0.35, metalness: 0.15, flatShading: true, fog: false });
+    const gem = new THREE.Mesh(gemGeo, mat); gem.castShadow = true; gem.userData.markB = b; g.add(gem);
+    const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: '#F0CD72', transparent: true, opacity: 0, fog: false, toneMapped: false })); gem.add(edges);
+    const L = labelTex(b.def.title);
+    const lab = new THREE.Mesh(lg, new THREE.MeshBasicMaterial({ map: L.t, transparent: true, depthWrite: false, toneMapped: false, fog: false }));
+    lab.renderOrder = 5; lab.scale.set(0.0001, 0.62, 1); lab.visible = false; scene.add(lab);
+    MARK_MESHES.push(gem);
+    MARKS.push({ b, g, gem, mat, edges, lab, w: 0.62 * L.aspect, k: 0, ph: (x * 0.37 + z * 0.11) % 6.28 });
   }
-  clearArea(MARKS.map((m) => [m.b.mark[0], m.b.mark[2]]), 1.7);   // no grass or bushes on top of a marker
+  clearArea(MARKS.map((m) => [m.b.mark[0], m.b.mark[2]]), 1.2);
 }
+const _gold = new THREE.Color('#F0CD72'), _teal = new THREE.Color('#1F5F66'), _cr = new V3();
 function updateMarks(dt) {
   markB = null; let bd = 2.8;
-  const live = playing && !boardOpen && !focusB && !anyOverlay();
+  const live = playing && !boardOpen && !focusB && !anyOverlay(), t = uTime.value;
+  _cr.setFromMatrixColumn(camera.matrixWorld, 0); _cr.y = 0; _cr.normalize();          // the camera's right, flat
   for (const m of MARKS) {
-    const vis = live && m.b.cave === CAVE.under; m.g.visible = vis; if (!vis) { m.k = 0; continue; }
+    const vis = live && m.b.cave === CAVE.under; m.g.visible = vis; if (!vis) { m.k = 0; m.lab.visible = false; continue; }
     const d = Math.hypot(car.p.x - m.b.mark[0], car.p.z - m.b.mark[2]);
     const on = (d < 2.8 && Math.abs(car.p.y - m.b.mark[1]) < 3) || hoverMark === m.b;
     if (on && d < bd + 0.01) { bd = d; markB = m.b; }
-    m.k = clamp(m.k + (on ? dt / 0.3 : -dt / 0.22), 0, 1);
-    const e = m.k, pop = e < 1 ? 1 + Math.sin(e * Math.PI) * 0.18 : 1;            // a little spring as it opens
-    m.dia.scale.setScalar(1.7 * (1 + 0.3 * e) * pop);
-    m.dia.material.map = markTex(e > 0.35); 
-    const ls = e < 0.25 ? 0 : (e - 0.25) / 0.75, le = ls * ls * (3 - 2 * ls);
-    m.lab.scale.x = Math.max(0.0001, m.w * le); m.lab.visible = le > 0.01;
+    m.k = clamp(m.k + (on ? dt / 0.3 : -dt / 0.25), 0, 1);
+    const e = m.k * m.k * (3 - 2 * m.k), pop = 1 + Math.sin(m.k * Math.PI) * 0.15;
+    // hover and turn; when open it grows, goes lagoon-teal with gold edges, and settles facing you
+    m.g.position.y = m.b.mark[1] + 0.95 + Math.sin(t * 1.8 + m.ph) * 0.12;
+    m.gem.rotation.y += dt * (1.2 - e * 1.0);
+    m.gem.scale.setScalar((1 + 0.55 * e) * pop);
+    m.mat.color.copy(_gold).lerp(_teal, e); m.mat.emissive.copy(_gold).lerp(_teal, e); m.mat.emissiveIntensity = 0.35 - 0.2 * e;
+    m.edges.material.opacity = e;
+    // the banner slides out of the gem to the left, always square to the camera
+    const ls = clamp((m.k - 0.2) / 0.8, 0, 1), le = ls * ls * (3 - 2 * ls);
+    m.lab.visible = le > 0.01;
+    if (m.lab.visible) {
+      const gx = m.g.position.x, gy = m.g.position.y, gz = m.g.position.z, r = 0.3 * (1 + 0.55 * e);
+      m.lab.position.set(gx - _cr.x * r, gy, gz - _cr.z * r);
+      m.lab.lookAt(m.lab.position.x + (camera.position.x - gx), m.lab.position.y, m.lab.position.z + (camera.position.z - gz));
+      m.lab.position.addScaledVector(_cr, 0).add(_fr.set(camera.position.x - gx, 0, camera.position.z - gz).normalize().multiplyScalar(-0.12));   // just behind the gem
+      m.lab.scale.x = Math.max(0.0001, m.w * le);
+    }
   }
   if (!markB) for (const m of MARKS) if (m.k > 0.5 && m.g.visible) { markB = m.b; break; }
 }
@@ -2519,7 +2523,7 @@ $('fbExit').addEventListener('click', () => exitFocus());
   canvas.addEventListener('pointermove', (e) => {   // pointing at a marker opens it
     if (e.pointerType !== 'mouse' || !playing || !MARK_MESHES.length) return;
     const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    rc.setFromCamera(ndc, camera); const h = rc.intersectObjects(MARK_MESHES.filter((m) => m.parent.parent.visible), false)[0];
+    rc.setFromCamera(ndc, camera); const h = rc.intersectObjects(MARK_MESHES.filter((m) => m.parent.visible), false)[0];
     hoverMark = h ? h.object.userData.markB : null; canvas.style.cursor = h ? 'pointer' : '';
   });
   canvas.addEventListener('pointerup', (e) => {
