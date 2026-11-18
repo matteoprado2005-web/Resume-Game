@@ -109,26 +109,6 @@ body.touch #mapWrap { width: 112px; height: 112px; bottom: auto; top: calc(64px 
   --wood: #7A4B2A; --wood-dk: #5E3820; --parchment: #FBF3E4; --coral: #C2462F; --teal: #1F5F66; --bbink: #2B2420;
   --fh: "Fredoka", "Nunito", system-ui, sans-serif; --fb: "Nunito", system-ui, sans-serif;
 }
-/* the interact marker: a small lantern-gold diamond floating over whatever you're near; point at it and it opens into the full
-   teal-and-gold spark, with the item's name sliding out to its left. On touch screens it's always open. */
-#interact { position: fixed; left: 0; top: 0; z-index: 12; width: 0; height: 0; padding: 0; border: 0; background: none; cursor: pointer; pointer-events: none; will-change: transform; }
-#interact[hidden] { display: none; }
-#interact .sym { position: absolute; left: -34px; top: -34px; width: 68px; height: 68px; pointer-events: auto; transform: scale(.5); transition: transform .32s cubic-bezier(.3,1.7,.5,1); animation: imIn .35s cubic-bezier(.3,1.7,.5,1); }
-#interact .sym svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 3px 6px rgba(0,0,0,.35)); }
-#interact .dia { fill: var(--gold); stroke: var(--teal); stroke-width: 9; transition: fill .2s, stroke .2s, stroke-width .2s; }
-#interact .spark { fill: var(--gold); transform: scale(0); transition: transform .3s cubic-bezier(.3,1.7,.5,1) .05s; }
-#interact .eye { fill: var(--teal); transform: scale(0); transition: transform .25s .1s; }
-#interact .lab { position: absolute; right: 2px; top: -21px; height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 46px 0 16px;   /* tucks under the diamond so there's no seam */ background: var(--teal); border: 2px solid var(--gold); border-right: 0; border-radius: 10px 0 0 10px; white-space: nowrap;
-  font-family: var(--fh); font-weight: 700; font-size: 19px; letter-spacing: .06em; text-transform: uppercase; color: #FBF3E4; pointer-events: none;
-  clip-path: inset(0 0 0 100%); transform: translateX(14px); opacity: 0; transition: clip-path .32s cubic-bezier(.2,.8,.2,1), transform .32s cubic-bezier(.2,.8,.2,1), opacity .15s; }
-#interact .lab kbd { font-family: var(--fh); font-size: 13px; color: var(--teal); background: var(--gold); border-radius: 6px; padding: 1px 7px; letter-spacing: 0; }
-#interact.open .sym { transform: scale(1); } body.touch #interact:not(.open) .sym { transform: scale(.62); }
-#interact.open .dia { fill: var(--teal); stroke: var(--gold); stroke-width: 6; }
-#interact.open .spark, #interact.open .eye { transform: scale(1); }
-#interact.open .lab { clip-path: inset(0 0 0 0); transform: none; opacity: 1; pointer-events: auto; }
-body.touch #interact .lab kbd { display: none; }
-@keyframes imIn { from { transform: scale(0); } }
-@media (prefers-reduced-motion: reduce) { #interact .sym, #interact .lab, #interact .spark { transition: none; animation: none; } }
 #focusBar { left: 0; right: 0; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; padding: 0 12px; text-shadow: none; }
 #focusBar[hidden] { display: none; }
 #focusBar button, #focusBar a { pointer-events: auto; font-family: var(--fb); font-weight: 800; font-size: 15px; color: var(--bbink); background: var(--parchment); border: 3px solid var(--wood); border-radius: 12px; padding: 8px 14px; box-shadow: 0 6px 18px rgba(0,0,0,.3); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
@@ -277,7 +257,7 @@ body.reading #touch, body.reading #region, body.reading #hint, body.reading #map
   <div class="grp"><button class="tbtn" data-k="back" aria-label="Brake or reverse">▼</button><button class="tbtn" data-k="fwd" aria-label="Accelerate">▲</button></div>
 </div>
 
-<button class="bb" id="interact" type="button" hidden aria-label="Read"><span class="lab"><span class="nm" id="interactName"></span><kbd>E</kbd></span><span class="sym" aria-hidden="true"><svg viewBox="-50 -50 100 100"><rect class="dia" x="-31" y="-31" width="62" height="62" rx="10" transform="rotate(45)"/><path class="spark" d="M0 -27 Q4 -4 27 0 Q4 4 0 27 Q-4 4 -27 0 Q-4 -4 0 -27 Z"/><circle class="eye" r="4.2"/></svg></span></button>
+
 <div class="hud bb" id="focusBar" hidden role="toolbar" aria-label="Billboard slides"><button id="fbPrev" type="button" aria-label="Previous slide">◀</button><span id="fbCount" aria-live="polite"></span><button id="fbNext" type="button" aria-label="Next slide">▶</button><span id="fbActs"></span><button id="fbExit" type="button"><kbd>E</kbd>Back to the island ✕</button></div>
 <div id="fade"></div>
 <div id="board" class="bb" hidden role="dialog" aria-modal="true" aria-labelledby="boardName">
@@ -1150,7 +1130,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261117f';
+const BUILD = '20261117g';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -2465,30 +2445,70 @@ async function saveResume(href) {
   catch (err) { if (!err || err.code !== 'declined') window.open(href, '_blank', 'noopener'); }
 }
 $('lightbox').addEventListener('click', () => { $('lightbox').hidden = true; });
-const readNear = () => { const b = nearBoard || (IM.classList.contains('open') ? markB : null); if (!b) return; if (readable(b)) enterFocus(b); else openBoard(b.def.id); };
-const IM = $('interact');
-IM.addEventListener('click', () => { const b = markB; if (!b) return; if (readable(b)) enterFocus(b); else openBoard(b.def.id); });
-for (const ev of ['pointerenter', 'focus']) IM.addEventListener(ev, () => (hoverIM = true));
-for (const ev of ['pointerleave', 'blur']) IM.addEventListener(ev, () => (hoverIM = false));
-const _im = new V3();
+const readNear = () => { const b = markB || nearBoard; if (!b) return; if (readable(b)) enterFocus(b); else openBoard(b.def.id); };
 // keeps the marker over the thing you're near; called each frame after the camera has moved
-// The marker lies on the ground just in front of the nearest board or statue. It shows up from further off than E reaches
-// (16 m), and opens when you point at it or drive the buggy onto it.
-let markB = null, hoverIM = false;
-function placeInteract() {
-  let b = null, bd = 16;
-  if (playing && !boardOpen && !focusB && !anyOverlay()) for (const q of BB) {
-    if (!q.mark || q.cave !== CAVE.under) continue;
-    const d = Math.hypot(car.p.x - q.mark[0], car.p.z - q.mark[2]); if (d < bd && Math.abs(car.p.y - q.mark[1]) < 6) { bd = d; b = q; }
+/* Interact markers: a lantern-gold diamond lying on the ground in front of every board and statue, part of the world like the
+   boards themselves, so you can spot it from as far as the board. Drive onto it (or point at it) and it grows into the teal
+   spark with the name sliding out to its left; E, a click or a tap opens what it belongs to. */
+const MARKS = [], MARK_MESHES = [];
+let markB = null, hoverMark = null;
+const _markTex = {};
+function markTex(open) {
+  if (_markTex[open]) return _markTex[open];
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  g.translate(128, 128); g.rotate(Math.PI / 4);
+  const d = (r, rr) => { g.beginPath(); g.roundRect(-r, -r, r * 2, r * 2, rr); };
+  d(78, 20); g.fillStyle = open ? '#F0CD72' : '#1F5F66'; g.fill();
+  d(64, 14); g.fillStyle = open ? '#1F5F66' : '#F0CD72'; g.fill();
+  g.rotate(-Math.PI / 4);
+  if (open) { g.fillStyle = '#F0CD72'; g.beginPath(); g.moveTo(0, -60); g.quadraticCurveTo(9, -9, 60, 0); g.quadraticCurveTo(9, 9, 0, 60); g.quadraticCurveTo(-9, 9, -60, 0); g.quadraticCurveTo(-9, -9, 0, -60); g.fill();
+    g.fillStyle = '#1F5F66'; g.beginPath(); g.arc(0, 0, 9, 0, 7); g.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return (_markTex[open] = t);
+}
+function labelTex(text) {
+  const c = document.createElement('canvas'), g = c.getContext('2d'), font = `700 64px ${FONT_B}`;
+  g.font = font; const w = Math.ceil(g.measureText(text.toUpperCase()).width) + 150 + 70; c.width = w; c.height = 112;
+  g.font = font; g.fillStyle = '#F0CD72'; g.beginPath(); g.roundRect(2, 2, w + 40, 108, 26); g.fill();
+  g.fillStyle = '#1F5F66'; g.beginPath(); g.roundRect(8, 8, w + 40, 96, 21); g.fill();
+  g.fillStyle = '#FBF3E4'; g.textBaseline = 'middle'; g.fillText(text.toUpperCase(), 40, 59);
+  const kx = 40 + g.measureText(text.toUpperCase()).width + 26;
+  g.fillStyle = '#F0CD72'; g.beginPath(); g.roundRect(kx, 30, 52, 56, 12); g.fill();
+  g.fillStyle = '#1F5F66'; g.font = `800 40px ${FONT_B}`; g.textAlign = 'center'; g.fillText('E', kx + 26, 60);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return { t, aspect: w / 112 };
+}
+function buildMarks() {
+  const mk = (map) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false, fog: false, polygonOffset: true, polygonOffsetFactor: -4 });
+  const sq = new THREE.PlaneGeometry(1, 1);
+  for (const b of BB) {
+    if (!b.mark) continue;
+    const [x, y, z] = b.mark, [fx, fz] = b.f;
+    const g = new THREE.Group(); g.position.set(x, y - 0.22, z);
+    g.rotation.set(0, Math.atan2(fx, fz), 0);                       // local +z points at the road, so viewers see local +x as their right
+    const tilt = new THREE.Group(); tilt.rotation.x = -Math.PI / 2 + 0.62; tilt.position.y = 0.55; g.add(tilt);   // stands on the ground, leaning back toward the road so it reads from far off
+    const dia = new THREE.Mesh(sq, mk(markTex(false))); dia.scale.setScalar(1.7); dia.renderOrder = 4; dia.userData.markB = b; tilt.add(dia);
+    const L = labelTex(b.def.title), lg = new THREE.PlaneGeometry(1, 1); lg.translate(-0.5, 0, 0);
+    const lab = new THREE.Mesh(lg, mk(L.t)); lab.renderOrder = 5; lab.position.set(-0.55, 1.75, 0.05); lab.scale.set(0.0001, 0.7, 1); g.add(lab);   // the name stands up beside it, clear of the grass and the buggy
+    scene.add(g); MARK_MESHES.push(dia);
+    MARKS.push({ b, g, dia, lab, w: 0.7 * L.aspect, k: 0 });
   }
-  if (b !== markB) { markB = b; if (b) { $('interactName').textContent = b.def.title; IM.setAttribute('aria-label', (readable(b) ? 'Read ' : 'Open ') + b.def.title); IM.hidden = true; } }
-  if (!b) { if (!IM.hidden) { IM.hidden = true; IM.classList.remove('open'); } return; }
-  IM.classList.toggle('open', hoverIM || bd < 2.8);
-  _im.set(b.mark[0], b.mark[1], b.mark[2]).project(camera);
-  if (_im.z > 1 || Math.abs(_im.x) > 1.2 || Math.abs(_im.y) > 1.2) { IM.style.visibility = 'hidden'; return; }
-  IM.style.visibility = ''; if (IM.hidden) IM.hidden = false;
-  const x = Math.round((_im.x + 1) / 2 * innerWidth), y = Math.round((1 - _im.y) / 2 * innerHeight);
-  IM.style.transform = `translate(${clamp(x, 60, innerWidth - 50)}px, ${clamp(y, 60, innerHeight - 60)}px)`;
+  clearArea(MARKS.map((m) => [m.b.mark[0], m.b.mark[2]]), 1.7);   // no grass or bushes on top of a marker
+}
+function updateMarks(dt) {
+  markB = null; let bd = 2.8;
+  const live = playing && !boardOpen && !focusB && !anyOverlay();
+  for (const m of MARKS) {
+    const vis = live && m.b.cave === CAVE.under; m.g.visible = vis; if (!vis) { m.k = 0; continue; }
+    const d = Math.hypot(car.p.x - m.b.mark[0], car.p.z - m.b.mark[2]);
+    const on = (d < 2.8 && Math.abs(car.p.y - m.b.mark[1]) < 3) || hoverMark === m.b;
+    if (on && d < bd + 0.01) { bd = d; markB = m.b; }
+    m.k = clamp(m.k + (on ? dt / 0.3 : -dt / 0.22), 0, 1);
+    const e = m.k, pop = e < 1 ? 1 + Math.sin(e * Math.PI) * 0.18 : 1;            // a little spring as it opens
+    m.dia.scale.setScalar(1.7 * (1 + 0.3 * e) * pop);
+    m.dia.material.map = markTex(e > 0.35); 
+    const ls = e < 0.25 ? 0 : (e - 0.25) / 0.75, le = ls * ls * (3 - 2 * ls);
+    m.lab.scale.x = Math.max(0.0001, m.w * le); m.lab.visible = le > 0.01;
+  }
+  if (!markB) for (const m of MARKS) if (m.k > 0.5 && m.g.visible) { markB = m.b; break; }
 }
 $('fbPrev').addEventListener('click', () => focusStep(-1));
 $('fbNext').addEventListener('click', () => focusStep(1));
@@ -2496,6 +2516,12 @@ $('fbExit').addEventListener('click', () => exitFocus());
 // click or tap a billboard: its left half goes back a slide, its right half forward
 { const rc = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
   canvas.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+  canvas.addEventListener('pointermove', (e) => {   // pointing at a marker opens it
+    if (e.pointerType !== 'mouse' || !playing || !MARK_MESHES.length) return;
+    const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    rc.setFromCamera(ndc, camera); const h = rc.intersectObjects(MARK_MESHES.filter((m) => m.parent.parent.visible), false)[0];
+    hoverMark = h ? h.object.userData.markB : null; canvas.style.cursor = h ? 'pointer' : '';
+  });
   canvas.addEventListener('pointerup', (e) => {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6 || !playing || anyOverlay()) return; down = null;
     const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -2507,6 +2533,8 @@ $('fbExit').addEventListener('click', () => exitFocus());
         if (h) return runAction(h.a); return focusStep(px < 1024 * 0.3 ? -1 : 1); }
       return focusStep(1);
     }
+    const mh = rc.intersectObjects(MARK_MESHES, false)[0];
+    if (mh) { const b = mh.object.userData.markB; if (readable(b)) enterFocus(b); else openBoard(b.def.id); return; }
     const hit = rc.intersectObjects(BOARD_FACES, false)[0];
     if (hit && hit.distance < 40 && hit.object.userData.board) { const b = hit.object.userData.board; if (b === nearBoard && readable(b)) enterFocus(b); else slideTo(b, b.sl.i + (hit.uv.x < 0.5 ? -1 : 1), true); }
   });
@@ -3227,7 +3255,7 @@ async function boot() {
   buildDocks(); buildBridge(); buildLandmarks(); buildFences(); flushBatches(); randAt(238411); buildCliffs(); buildTemple();
   moveLanternOrb(); buildOrbs();
   try { await document.fonts.load('700 92px Fredoka'); await document.fonts.load('700 40px Nunito'); } catch (e) {}
-  buildBillboards();
+  buildBillboards(); buildMarks();
   buildTorches(); buildAmbient(); buildCar(); buildChests();
   { // the teleport list: every billboard by its title, then where it stands
     const seen = new Set(), sel = $('tpSel');
@@ -3290,7 +3318,7 @@ function frame() {
   // the camera moves fast, so it redraws on every other frame; when driving it redraws every frame so the buggy's shadow never trails
   shadowTick ^= 1; if (shadowTick || window.__camOverride || car.v.lengthSq() > 2.25 || FOCUS.k > 0 && FOCUS.k < 1) renderer.shadowMap.needsUpdate = true;
   if (GRASS_IMS.length) cullGrass();   // after the camera has its final place for this frame
-  placeInteract();
+  if (MARKS.length) updateMarks(dt);
   if (window.__diag || DEBUG) { renderer.info.autoReset = false; renderer.info.reset(); }
   const t0 = DEBUG ? performance.now() : 0;
   composer.render();
