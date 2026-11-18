@@ -1054,8 +1054,8 @@ function ditherPatch(m) {
         vec3 seg = uSee.xyz - cameraPosition;
         float tt = clamp(dot(wPos - cameraPosition, seg) / max(dot(seg, seg), 1e-4), 0.0, 1.0);
         float dd = length(wPos - cameraPosition - seg * tt);
-        float rad = mix(1.1, 2.7, tt) * uSeeR;
-        float fade = (1.0 - smoothstep(rad * 0.5, rad, dd)) * (uSeeR > 1.01 ? smoothstep(0.995, 0.982, tt) : smoothstep(0.97, 0.88, tt)) * smoothstep(0.02, 0.1, tt);
+        float rad = mix(1.1, 2.7, tt) * abs(uSeeR);   // negative uSeeR: reading a billboard
+        float fade = (1.0 - smoothstep(rad * 0.5, rad, dd)) * (uSeeR < 0.0 ? smoothstep(0.995, 0.982, tt) : smoothstep(0.97, 0.88, tt)) * smoothstep(0.02, 0.1, tt);
         const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
         ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));
         if (fade * 0.9 > (BAYER[q.x + q.y * 4] + 0.5) / 16.0) discard;
@@ -1119,16 +1119,17 @@ function windPatch(mat, amount, grass = false) {
       vec2 dc = wp.xz - uCar.xz; float dd = length(dc);
       float push = (1.0 - smoothstep(0.3, 2.2, dd)) * hf * step(abs(org.y - uCar.y), 2.5);
       wp.xz += dc / (dd + 0.001) * push * 0.9; wp.y -= push * 0.4;` : `
-      float sw = (sin(uTime*1.4 + org.x*0.21 + org.z*0.13) + 0.45*sin(uTime*2.9 + org.x*0.5 + wp.y)) * (0.55 + 0.9 * gust);
-      wp.x += sw * hf * hf * ${amount.toFixed(4)};
-      wp.z += sw * hf * hf * ${(amount * 0.6).toFixed(4)};`}
+      // leaves and branches lean downwind with the same gusts and ripples as the grass, rocking a little as they go
+      float sw = 0.45 + 0.9 * gust + 0.45 * ripple + 0.35 * sin(uTime * 1.6 + org.x * 0.21 + org.z * 0.13) + 0.15 * sin(uTime * 3.1 + org.x * 0.5 + wp.y);
+      vec2 wd = W + vec2(-W.y, W.x) * 0.25 * sin(uTime * 0.9 + org.z * 0.3);
+      wp.xz += wd * sw * (hf * hf * ${amount.toFixed(4)} + hf * ${(amount * 6).toFixed(4)});`}
       vec4 mvPosition = viewMatrix * wp;
       gl_Position = projectionMatrix * mvPosition;`);
     // a faint sheen where the gust has the blades lying over
     sh.fragmentShader = 'varying float vGust;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       ${blade ? 'diffuseColor.rgb *= 0.92 + 0.3 * vGust * vGust;' : grass ? 'diffuseColor.rgb *= 0.97 + 0.09 * vGust;' : ''}`);   // blades lying flat catch the light, so the ripples show as moving sheen
   };
-  mat.customProgramCacheKey = () => 'wind3' + amount + grass;
+  mat.customProgramCacheKey = () => 'wind4' + amount + grass;
 }
 
 /* ============================================================ assets */
@@ -1919,7 +1920,7 @@ function buildLandmarks() {
     const off = (u, v) => [pad.x + f.tx * u + f.nx * v, pad.z + f.tz * u + f.nz * v];
     let orb;
     switch (reg.name) {
-      case 'Coral Cove': buildArch(...off(0, 9), tang + Math.PI / 2); hut(...off(-4, 1), face); orb = off(3, -1); prop('crate', ...off(-1, -3), 0.3); prop('barrel', ...off(-0.2, -3.6), 0); break;
+      case 'Coral Cove': buildArch(...off(0, 9), tang + Math.PI / 2); hut(...off(1.2, 3.2), face); orb = off(3, -1); prop('crate', ...off(4.6, 2.2), 0.3); prop('barrel', ...off(5.3, 1.5), 0); break;
       case 'Driftwood Pier': { hut(...off(0, 1), face); const d = DECKS[0]; orb = [d.x + d.dx * (d.len - 6), d.z + d.dz * (d.len - 6)]; prop('crate', ...off(3.5, -2), 0.2); prop('barrel', ...off(4.3, -2.7), 0); break; }
       case "Gull's Landing": hut(...off(-3.2, 1.2), face); hut(...off(3.6, 0.5), face + 0.3); lantern(...off(0, -2.6), face); orb = off(0.2, -1); prop('crate', ...off(-1.2, -3.5), 0.5); prop('barrel', ...off(1.4, -3.8), 0); break;
       case 'Lantern Bay': { hut(...off(-2, 1.5), face); for (let k = 0; k < 4; k++) lantern(...off(-4 + k * 3, -3.4), face); const d = DECKS[1]; orb = [d.x + d.dx * (d.len - 6), d.z + d.dz * (d.len - 6)]; break; }
@@ -2358,12 +2359,12 @@ function enterFocus(b) {
   toggleMenu(false); toggleSettings(false); closeBoard();
   if (focusB && focusB !== b) exitFocus(true);
   focusB = b; Object.keys(input).forEach((k) => (input[k] = 0));
-  if (b.sl.i === 0 && b.sl.slides.length > 1) slideTo(b, 1, true); else drawSlide(b);
+  if (b.sl.i !== 0) slideTo(b, 0, true); else drawSlide(b);   // always from the first slide
   b.sl.hold = 0; achBoard(b.def.id);
   $('prompt').hidden = true; $('focusBar').hidden = false; updateFocusBar(); document.body.classList.add('reading');
 }
 function exitFocus(quiet) {
-  if (!focusB) return; const b = focusB; focusB = null; drawSlide(b); b.sl.hold = 6;
+  if (!focusB) return; const b = focusB; focusB = null; if (b.sl.i !== 0) slideTo(b, 0, false); else drawSlide(b); b.sl.hold = 6;
   $('focusBar').hidden = true; document.body.classList.remove('reading'); if (!quiet) canvas.focus();
 }
 function focusStep(d) { if (focusB) slideTo(focusB, focusB.sl.i + d, true); }
@@ -3207,7 +3208,7 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
+  window.__dbg = { LANDMARKS, slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
 }
 
 const clock = new THREE.Clock();
@@ -3238,8 +3239,8 @@ function frame() {
     for (const f of animated) f(dt, t);
   }
   updateCamera(dt, t); applyFocus(dt);
-  if (FOCUS.k > 0.3 && FOCUS.from) { uSee.value.set(FOCUS.look.x, FOCUS.look.y, FOCUS.look.z, 1); uSeeR.value = 1.5 * FOCUS.from.sc; }   // reading: clear the way to the board
-  else if (carVisual) { uSee.value.set(carVisual.position.x, carVisual.position.y + 0.7, carVisual.position.z, playing && !window.__camOverride ? 1 : 0); uSeeR.value = 1; }
+  if (FOCUS.k > 0.3 && FOCUS.from) { uSee.value.set(FOCUS.look.x, FOCUS.look.y, FOCUS.look.z, 1); uSeeR.value = -1.5 * FOCUS.from.sc; }   // reading: clear the way to the board
+  else if (carVisual) { uSee.value.set(carVisual.position.x, carVisual.position.y + 0.7, carVisual.position.z, playing && !window.__camOverride ? 1 : 0); uSeeR.value = 1.6; }
   dayNight(dt);
   if (window.__camOverride) { const o = window.__camOverride; camera.position.set(o[0], o[1], o[2]); camera.lookAt(o[3], o[4], o[5]); }
   caveLighting(dt);
