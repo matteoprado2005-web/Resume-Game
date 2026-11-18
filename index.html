@@ -1131,7 +1131,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261118d';
+const BUILD = '20261118e';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -2169,7 +2169,7 @@ function boardMesh(def, scale = 1, posts = true, signTop = false) {
   const cv = document.createElement('canvas'); cv.width = 1536; cv.height = 960;   // drawn in 1024x640 units at 1.5x, for crisp type
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const face = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.25), new THREE.MeshBasicMaterial({ map: tex, color: '#e2ddd4' }));   // unlit: headlights, sun and dusk never wash the words out
-  face.position.set(0, base + 1.125, 0.085); g.add(face); BOARD_FACES.push(face);
+  face.position.set(0, base + 1.125, 0.085); g.add(face); BOARD_FACES.push(face); sharpTwin(face);
   // the section sign hangs from an arm off the right post, hinged along its top edge so it can flip over
   const tcv = document.createElement('canvas'); tcv.width = 512; tcv.height = 176;
   const ttex = new THREE.CanvasTexture(tcv); ttex.colorSpace = THREE.SRGBColorSpace; ttex.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -2185,8 +2185,8 @@ function boardMesh(def, scale = 1, posts = true, signTop = false) {
   }
   g.add(pivot);
   const plank = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.58, 0.07), woodMat); plank.position.set(0, py, 0); pivot.add(plank);
-  const tm = new THREE.MeshStandardMaterial({ map: ttex, color: '#e2dacd', emissiveMap: ttex, emissive: '#ffffff', emissiveIntensity: 0.14, roughness: 0.9 });
-  for (const side of [1, -1]) { const tf = new THREE.Mesh(new THREE.PlaneGeometry(1.56, 0.536), tm); tf.position.set(0, py, 0.037 * side); if (side < 0) tf.rotation.y = Math.PI; pivot.add(tf); }
+  const tm = new THREE.MeshBasicMaterial({ map: ttex, color: '#e2dacd' });   // unlit like the face, so the words read the same in any light
+  for (const side of [1, -1]) { const tf = new THREE.Mesh(new THREE.PlaneGeometry(1.56, 0.536), tm); tf.position.set(0, py, 0.037 * side); if (side < 0) tf.rotation.y = Math.PI; pivot.add(tf); sharpTwin(tf); }
   g.userData.sl = { cv, ctx: cv.getContext('2d'), tex, tctx: tcv.getContext('2d'), ttex, pivot, face, i: 0, t: 0, hold: 0, flip: null };
   const back = new THREE.Mesh(new THREE.BoxGeometry(3.72, 2.37, 0.14), woodMat); back.position.set(0, base + 1.125, 0); g.add(back);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(3.98, 0.12, 0.42), woodDark); roof.position.set(0, base + 2.34, 0.04); g.add(roof);
@@ -2511,9 +2511,9 @@ function buildMarks() {
     if (!b.mark) continue;
     const [x, y, z] = b.mark;
     const g = new THREE.Group(); g.position.set(x, y + 1.1, z); scene.add(g);
-    const dia = new THREE.Mesh(new THREE.PlaneGeometry(MARK_OPEN, MARK_OPEN), mk(markTex(true))); dia.renderOrder = 6; dia.userData.markB = b; g.add(dia);
+    const dia = new THREE.Mesh(new THREE.PlaneGeometry(MARK_OPEN, MARK_OPEN), mk(markTex(true))); dia.renderOrder = 6; dia.userData.markB = b; g.add(dia); sharpTwin(dia);
     const L = labelTex(b.def.title), bg = new THREE.PlaneGeometry(1, BAN_H); bg.translate(-0.5, 0, 0);   // grows leftward from the diamond's centre
-    const lab = new THREE.Mesh(bg, mk(L.t)); lab.renderOrder = 5; lab.position.z = -0.01; lab.scale.x = 0.0001; lab.visible = false; g.add(lab);
+    const lab = new THREE.Mesh(bg, mk(L.t)); lab.renderOrder = 5; lab.position.z = -0.01; lab.scale.x = 0.0001; lab.visible = false; g.add(lab); sharpTwin(lab);
     MARK_MESHES.push(dia);
     MARKS.push({ b, g, dia, lab, L, k: 0 });
   }
@@ -2871,12 +2871,34 @@ function physicsStep(dt) {
 }
 
 /* ============================================================ post */
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 4 }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 4, depthTexture: new THREE.DepthTexture(Math.round(innerWidth * pixelRatio), Math.round(innerHeight * pixelRatio)) }));
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.4, 0.55, 1.0);
 composer.addPass(bloom);
-let sharpOn = false, sharpT = 0;
-function applyPixelRatio() { renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight); }
+function applyPixelRatio() { composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight); }
+/* Sharp text. The island may be drawn at reduced resolution to keep driving smooth, but words never are: every billboard face,
+   section sign and marker has a twin, drawn straight onto the full-resolution screen after the scene, which hides itself
+   wherever the scene's depth says something stands in front of it. */
+const SHARP = { depth: { value: null }, res: { value: new THREE.Vector2(1, 1) }, nf: { value: new THREE.Vector2(0.1, 1000) } };
+function sharpTwin(mesh) {
+  const m = mesh.material.clone(), key = mesh.material.type;
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, { uSD: SHARP.depth, uSRes: SHARP.res, uSNF: SHARP.nf });
+    sh.fragmentShader = 'uniform sampler2D uSD;\nuniform vec2 uSRes, uSNF;\nfloat sLin(float d) { return uSNF.x * uSNF.y / (uSNF.y - d * (uSNF.y - uSNF.x)); }\n' +
+      sh.fragmentShader.replace('void main() {', 'void main() {\n  { float fz = sLin(gl_FragCoord.z); if (fz > sLin(texture2D(uSD, gl_FragCoord.xy / uSRes).x) + 0.05 + fz * 0.006) discard; }');
+  };
+  m.customProgramCacheKey = () => 'sharp' + key;
+  const t = new THREE.Mesh(mesh.geometry, m); t.layers.set(3); t.renderOrder = mesh.renderOrder + 1; t.frustumCulled = mesh.frustumCulled; mesh.add(t);
+  return t;
+}
+function renderSharp(rt) {
+  if (!rt.depthTexture || window.__noSharp) return;
+  SHARP.depth.value = rt.depthTexture; renderer.getDrawingBufferSize(SHARP.res.value); SHARP.nf.value.set(camera.near, camera.far);
+  const bg = scene.background, ac = renderer.autoClear, mask = camera.layers.mask;
+  scene.background = null; renderer.autoClear = false; camera.layers.set(3); renderer.setRenderTarget(null);
+  renderer.render(scene, camera);
+  camera.layers.mask = mask; renderer.autoClear = ac; scene.background = bg;
+}
 const grade = new ShaderPass({
   uniforms: { tDiffuse: { value: null } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
@@ -3304,7 +3326,7 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { DECKS, deckAt, pathDist, LANDMARKS, slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
+  window.__dbg = { setScenePR: (v) => { pixelRatio = v; applyPixelRatio(); }, DECKS, deckAt, pathDist, LANDMARKS, slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
 }
 
 const clock = new THREE.Clock();
@@ -3351,19 +3373,13 @@ function frame() {
   if (MARKS.length) updateMarks(dt);
   if (window.__diag || DEBUG) { renderer.info.autoReset = false; renderer.info.reset(); }
   const t0 = DEBUG ? performance.now() : 0;
-  composer.render();
+  const sceneRT = composer.readBuffer; composer.render(); renderSharp(sceneRT);
   if (window.__diag) { window.__frames = (window.__frames || 0) + 1; window.__info = JSON.stringify(renderer.info.render); }
   if (DEBUG) {
     dbgN++; dbgMs += performance.now() - t0; dbgT += dt;
     if (dbgT > 0.5) { const r = renderer.info.render; dbgEl.textContent = `${Math.round(dbgN / dbgT)} fps  ${(dbgT * 1000 / dbgN).toFixed(1)} ms/frame\ndraw calls ${r.calls}\ntriangles ${(r.triangles / 1e6).toFixed(2)} M\nCPU render ${(dbgMs / dbgN).toFixed(1)} ms\npixel ratio ${pixelRatio.toFixed(2)}`; dbgN = 0; dbgT = 0; dbgMs = 0; }
   }
-  // parked at a board (or reading one): render at full resolution so its words are crisp; back to the adaptive setting once you drive off
-  const still = playing && (focusB || (nearBoard && car.v.lengthSq() < 0.25));
-  sharpT = still ? sharpT + dt : 0;
-  const wantSharp = sharpT > 0.5;
-  if (wantSharp !== sharpOn) { sharpOn = wantSharp; const pr = sharpOn ? Math.max(pixelRatio, GFX.maxPR) : pixelRatio;
-    renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); frames = 0; ftAcc = 0; }
-  if (boardOpen || sharpOn) return;                   // throttled or deliberately sharp frames say nothing about how fast the game runs
+  if (boardOpen) return;                   // throttled or deliberately sharp frames say nothing about how fast the game runs
   frames++; ftAcc += dt;
   if (ftAcc > 2.5) {
     const avg = ftAcc / frames;
