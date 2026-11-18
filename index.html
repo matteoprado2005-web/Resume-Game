@@ -725,6 +725,7 @@ for (const da of DOCK_ANGLES) {
 /* the river and bridge */
 const BF = loopFrame(BI);
 const BRIDGE = { x: BF.p.x, z: BF.p.z, tx: BF.tx, tz: BF.tz, nx: BF.nx, nz: BF.nz, y: bridgeH, len: 18.2, w: 4.2 };
+window.__BR = { x: BRIDGE.x - BRIDGE.tx * BRIDGE.len / 2, z: BRIDGE.z - BRIDGE.tz * BRIDGE.len / 2, dx: BRIDGE.tx, dz: BRIDGE.tz, len: BRIDGE.len, w: BRIDGE.w, y: bridgeH };
 DECKS.push({ kind: 'bridge', x: BRIDGE.x - BRIDGE.tx * BRIDGE.len / 2, z: BRIDGE.z - BRIDGE.tz * BRIDGE.len / 2, dx: BRIDGE.tx, dz: BRIDGE.tz, len: BRIDGE.len, w: BRIDGE.w, y: bridgeH });
 const RIVER = [];
 for (let s = -14; s <= 44; s += 2) {
@@ -1130,7 +1131,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261118b';
+const BUILD = '20261118d';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -1576,6 +1577,22 @@ function buildCliffs() {
       for (let i = 0; i < n; i++) { a[i * 2] = uv.getX(i) * 6 - 3; a[i * 2 + 1] = uv.getY(i) * 8 - 5; r[i] = u1 ? u1.getX(i) * 4.5 - 0.5 : 1; }
       g.setAttribute('uv', new THREE.BufferAttribute(a, 2)); g.setAttribute('recess', new THREE.BufferAttribute(r, 1)); if (u1) g.deleteAttribute('uv1');
     };
+    // keep the causeway clear: any crater rock that juts over the deck is pushed back out to the side, 0.7 m past its edge
+    const cw = DECKS.find((d) => d.kind === 'causeway'), Mi = new THREE.Matrix4(), W3 = new V3();
+    const clearDeck = (p) => {
+      if (!cw || p.geo.userData.deckCleared) return; p.geo.userData.deckCleared = true;
+      const pos = p.geo.attributes.position, half = cw.w / 2 + 0.7; Mi.copy(p.mtx).invert(); let moved = 0;
+      for (let i = 0; i < pos.count; i++) {
+        W3.fromBufferAttribute(pos, i).applyMatrix4(p.mtx);
+        if (W3.y < cw.y - 0.6 || W3.y > cw.y + 4.5) continue;
+        const rx = W3.x - cw.x, rz = W3.z - cw.z, u = rx * cw.dx + rz * cw.dz, v = -rx * cw.dz + rz * cw.dx;
+        if (u < -1.5 || u > cw.len + 1 || Math.abs(v) >= half) continue;
+        const nv = Math.sign(v || 1) * half;
+        W3.x = cw.x + cw.dx * u - cw.dz * nv; W3.z = cw.z + cw.dz * u + cw.dx * nv; W3.applyMatrix4(Mi); pos.setXYZ(i, W3.x, W3.y, W3.z); moved++;
+      }
+      if (moved) { pos.needsUpdate = true; p.geo.computeBoundingSphere(); }
+    };
+    for (const nm of CRATER) for (const p of A[nm].parts) clearDeck(p);
     // near (inside the crater, on the rim road and its surroundings) the detailed rock with its greenery; further off a light copy without it.
     // The light copy also casts the sun's shadow, from layer 1, which only the shadow camera sees
     const lod = new THREE.LOD(), C0 = new V3(LAG_C.x, 4, LAG_C.z); lod.position.copy(C0);
@@ -2149,13 +2166,13 @@ const BOARD_FACES = [];
 function boardMesh(def, scale = 1, posts = true, signTop = false) {
   const g = new THREE.Group(), base = posts ? 1.55 : 0;
   // the face is a canvas the slideshow redraws
-  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 640;
-  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.25), new THREE.MeshStandardMaterial({ map: tex, color: '#d9d2c6', emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: 0.16, roughness: 0.95 }));
+  const cv = document.createElement('canvas'); cv.width = 1536; cv.height = 960;   // drawn in 1024x640 units at 1.5x, for crisp type
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.25), new THREE.MeshBasicMaterial({ map: tex, color: '#e2ddd4' }));   // unlit: headlights, sun and dusk never wash the words out
   face.position.set(0, base + 1.125, 0.085); g.add(face); BOARD_FACES.push(face);
   // the section sign hangs from an arm off the right post, hinged along its top edge so it can flip over
   const tcv = document.createElement('canvas'); tcv.width = 512; tcv.height = 176;
-  const ttex = new THREE.CanvasTexture(tcv); ttex.colorSpace = THREE.SRGBColorSpace; ttex.anisotropy = 4;
+  const ttex = new THREE.CanvasTexture(tcv); ttex.colorSpace = THREE.SRGBColorSpace; ttex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const ax = posts ? 1.45 : 1.86, ay = base + 2.12, pivot = new THREE.Group(); let py = -0.45;
   if (signTop) {
     // where the sides are hemmed in, the sign stands on the roof instead, turning about its middle
@@ -2200,7 +2217,7 @@ function placeBoard(def, spot, opts = {}) {
   if (opts.posts !== false) for (const s of [-1, 1]) addCollider(x + fz * 1.45 * s * sc, z - fx * 1.45 * s * sc, 0.3, y + 5);
   const d = opts.spawnDist ?? 7, spawn = { x: x + fx * d, z: z + fz * d, yaw: Math.atan2(fz, -fx) };
   const b = { def, x, y, z, f: [fx, fz], spawn, cave: !!opts.cave, sl, sc, base: opts.posts !== false ? 1.55 : 0, signTop: !!opts.signTop };
-  { const d = 1.3 * sc, gy = y - (opts.cave ? 0.75 : 0); b.mark = [x + fx * d, gy + 0.3, z + fz * d]; }   // the interact marker: on the ground just in front of the board
+  { const d = 2.1 * sc, gy = y - (opts.cave ? 0.75 : 0); b.mark = [x + fx * d, gy + 0.3, z + fz * d]; }   // the interact marker: on the ground just in front of the board
   sl.face.userData.board = b; BB.push(b); return b;
 }
 function buildBillboards() {
@@ -2399,7 +2416,6 @@ function applyFocus(dt) {
   const b = FOCUS.from; if (!b) return;
   const e = FOCUS.k * FOCUS.k * (3 - 2 * FOCUS.k);
   _fr.copy(camTarget).lerp(FOCUS.look, e); camera.position.lerp(FOCUS.pos, e); camera.lookAt(_fr);
-  b.sl.face.material.emissiveIntensity = 0.16 + 0.22 * e;
   const hide = e < 0.6; if (carVisual) carVisual.visible = hide; wheelMeshes.forEach((w) => (w.grp.visible = hide));
   if (FOCUS.k === 0) FOCUS.from = null;
 }
@@ -2494,7 +2510,7 @@ function buildMarks() {
   for (const b of BB) {
     if (!b.mark) continue;
     const [x, y, z] = b.mark;
-    const g = new THREE.Group(); g.position.set(x, y + 1.75, z); scene.add(g);
+    const g = new THREE.Group(); g.position.set(x, y + 1.1, z); scene.add(g);
     const dia = new THREE.Mesh(new THREE.PlaneGeometry(MARK_OPEN, MARK_OPEN), mk(markTex(true))); dia.renderOrder = 6; dia.userData.markB = b; g.add(dia);
     const L = labelTex(b.def.title), bg = new THREE.PlaneGeometry(1, BAN_H); bg.translate(-0.5, 0, 0);   // grows leftward from the diamond's centre
     const lab = new THREE.Mesh(bg, mk(L.t)); lab.renderOrder = 5; lab.position.z = -0.01; lab.scale.x = 0.0001; lab.visible = false; g.add(lab);
@@ -2513,7 +2529,7 @@ function updateMarks(dt) {
     if (on && d < bd + 0.01) { bd = d; markB = m.b; }
     m.k = clamp(m.k + (on ? dt / 0.32 : -dt / 0.24), 0, 1);
     m.g.quaternion.copy(camera.quaternion);                          // square to the camera, every frame
-    const cd = camera.position.distanceTo(m.g.position), far = Math.max(1, cd / 14);   // far off it keeps a readable size
+    const cd = camera.position.distanceTo(m.g.position), far = 1 + 0.13 * smooth(12, 45, cd);   // only ~13% bigger far off, so it never steals the view
     const k = m.k, spring = k < 1 ? 1 + Math.sin(k * Math.PI) * 0.16 : 1;
     m.g.scale.setScalar(far * (0.55 + 0.45 * k * k * (3 - 2 * k)) * (k > 0 ? spring : 1));
     // slide out: the banner's left end comes out first; its right end never leaves the diamond
@@ -2859,6 +2875,7 @@ const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerW
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.4, 0.55, 1.0);
 composer.addPass(bloom);
+let sharpOn = false, sharpT = 0;
 function applyPixelRatio() { renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight); }
 const grade = new ShaderPass({
   uniforms: { tDiffuse: { value: null } },
@@ -3008,7 +3025,7 @@ function fitFont(ctx, text, weight, size, family, maxW) { let s = size; do { ctx
 // the face: the board's name in the dark header, the slide in the cream panel, the page dots under it
 function drawSlide(b) {
   const { ctx, slides, i } = b.sl, def = b.def, sl = slides[i], W = 1024, H = 640;
-  ctx.clearRect(0, 0, W, H);
+  ctx.setTransform(ctx.canvas.width / W, 0, 0, ctx.canvas.height / H, 0, 0); ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#7A4B2A'; roundRect(ctx, 0, 0, W, H, 46); ctx.fill();
   ctx.fillStyle = '#5E3820'; roundRect(ctx, 22, 22, W - 44, 104, 30); ctx.fill();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -3287,7 +3304,7 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { LANDMARKS, slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
+  window.__dbg = { DECKS, deckAt, pathDist, LANDMARKS, slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
 }
 
 const clock = new THREE.Clock();
@@ -3340,7 +3357,13 @@ function frame() {
     dbgN++; dbgMs += performance.now() - t0; dbgT += dt;
     if (dbgT > 0.5) { const r = renderer.info.render; dbgEl.textContent = `${Math.round(dbgN / dbgT)} fps  ${(dbgT * 1000 / dbgN).toFixed(1)} ms/frame\ndraw calls ${r.calls}\ntriangles ${(r.triangles / 1e6).toFixed(2)} M\nCPU render ${(dbgMs / dbgN).toFixed(1)} ms\npixel ratio ${pixelRatio.toFixed(2)}`; dbgN = 0; dbgT = 0; dbgMs = 0; }
   }
-  if (boardOpen) return;                              // throttled frames say nothing about how fast the game runs
+  // parked at a board (or reading one): render at full resolution so its words are crisp; back to the adaptive setting once you drive off
+  const still = playing && (focusB || (nearBoard && car.v.lengthSq() < 0.25));
+  sharpT = still ? sharpT + dt : 0;
+  const wantSharp = sharpT > 0.5;
+  if (wantSharp !== sharpOn) { sharpOn = wantSharp; const pr = sharpOn ? Math.max(pixelRatio, GFX.maxPR) : pixelRatio;
+    renderer.setPixelRatio(pr); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); frames = 0; ftAcc = 0; }
+  if (boardOpen || sharpOn) return;                   // throttled or deliberately sharp frames say nothing about how fast the game runs
   frames++; ftAcc += dt;
   if (ftAcc > 2.5) {
     const avg = ftAcc / frames;
