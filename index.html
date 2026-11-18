@@ -122,10 +122,10 @@ body.touch #mapWrap { width: 112px; height: 112px; bottom: auto; top: calc(64px 
   font-family: var(--fh); font-weight: 700; font-size: 19px; letter-spacing: .06em; text-transform: uppercase; color: #FBF3E4; pointer-events: none;
   clip-path: inset(0 0 0 100%); transform: translateX(14px); opacity: 0; transition: clip-path .32s cubic-bezier(.2,.8,.2,1), transform .32s cubic-bezier(.2,.8,.2,1), opacity .15s; }
 #interact .lab kbd { font-family: var(--fh); font-size: 13px; color: var(--teal); background: var(--gold); border-radius: 6px; padding: 1px 7px; letter-spacing: 0; }
-#interact.open .sym, body.touch #interact .sym { transform: scale(1); }
-#interact.open .dia, body.touch #interact .dia { fill: var(--teal); stroke: var(--gold); stroke-width: 6; }
-#interact.open .spark, #interact.open .eye, body.touch #interact .spark, body.touch #interact .eye { transform: scale(1); }
-#interact.open .lab, body.touch #interact .lab { clip-path: inset(0 0 0 0); transform: none; opacity: 1; pointer-events: auto; }
+#interact.open .sym { transform: scale(1); } body.touch #interact:not(.open) .sym { transform: scale(.62); }
+#interact.open .dia { fill: var(--teal); stroke: var(--gold); stroke-width: 6; }
+#interact.open .spark, #interact.open .eye { transform: scale(1); }
+#interact.open .lab { clip-path: inset(0 0 0 0); transform: none; opacity: 1; pointer-events: auto; }
 body.touch #interact .lab kbd { display: none; }
 @keyframes imIn { from { transform: scale(0); } }
 @media (prefers-reduced-motion: reduce) { #interact .sym, #interact .lab, #interact .spark { transition: none; animation: none; } }
@@ -1150,7 +1150,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261117e';
+const BUILD = '20261117f';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -2220,7 +2220,7 @@ function placeBoard(def, spot, opts = {}) {
   if (opts.posts !== false) for (const s of [-1, 1]) addCollider(x + fz * 1.45 * s * sc, z - fx * 1.45 * s * sc, 0.3, y + 5);
   const d = opts.spawnDist ?? 7, spawn = { x: x + fx * d, z: z + fz * d, yaw: Math.atan2(fz, -fx) };
   const b = { def, x, y, z, f: [fx, fz], spawn, cave: !!opts.cave, sl, sc, base: opts.posts !== false ? 1.55 : 0, signTop: !!opts.signTop };
-  b.markY = y + ((opts.posts !== false ? 1.55 : 0) + 2.25 + (opts.signTop ? 1.6 : 0.7)) * sc;   // where the interact marker floats
+  { const d = 1.3 * sc, gy = y - (opts.cave ? 0.75 : 0); b.mark = [x + fx * d, gy + 0.3, z + fz * d]; }   // the interact marker: on the ground just in front of the board
   sl.face.userData.board = b; BB.push(b); return b;
 }
 function buildBillboards() {
@@ -2247,7 +2247,7 @@ function buildBillboards() {
     if (def.id === 'spotify') {
       // the plaque itself is placed by buildTemple; this makes it interactive
       const C = CAVE.C, ux = CAVE.dx, uz = CAVE.dz, u = 4.15;     // behind the shrine, facing out over the lagoon
-      BB.push({ def, x: C.x + ux * u, y: 0.58, z: C.z + uz * u, f: [ux, uz], spawn: { x: C.x + ux * 8.2, z: C.z + uz * 8.2, yaw: Math.atan2(uz, -ux), y: 0.58 }, cave: false, plaque: true, markY: 0.58 + 1.7 });
+      BB.push({ def, x: C.x + ux * u, y: 0.58, z: C.z + uz * u, f: [ux, uz], spawn: { x: C.x + ux * 8.2, z: C.z + uz * 8.2, yaw: Math.atan2(uz, -ux), y: 0.58 }, cave: false, plaque: true, mark: [C.x + ux * (u + 1.0), 0.58 + 0.3, C.z + uz * (u + 1.0)] });
     }
   }
   placeStatues();
@@ -2298,7 +2298,7 @@ function placeStatues() {
       fnd.position.set(x, y - hgt / 2 + 0.02, z); fnd.rotation.y = ry; fnd.castShadow = fnd.receiveShadow = true; world.add(fnd);
     }
     for (const u of [-2.6, 0, 2.6]) addCollider(x + fz * u * SC, z - fx * u * SC, 1.9 * SC, y + 9);
-    BB.push({ def, x, y, z, f: [fx, fz], spawn: { x: x + fx * 8, z: z + fz * 8, yaw: Math.atan2(fz, -fx) }, cave: false, statue: true, markY: y + 5.2 * SC });
+    BB.push({ def, x, y, z, f: [fx, fz], spawn: { x: x + fx * 8, z: z + fz * 8, yaw: Math.atan2(fz, -fx) }, cave: false, statue: true, mark: [x + fx * 3.0 * SC, groundAt(x + fx * 3.0 * SC, z + fz * 3.0 * SC) + 0.3, z + fz * 3.0 * SC] });
   });
 }
 const lanternDock = () => DECKS.filter((d) => d.kind === 'dock').sort((a, b) => Math.abs(angDiff(Math.atan2(a.z, a.x), DOCK_ANGLES[1])) - Math.abs(angDiff(Math.atan2(b.z, b.x), DOCK_ANGLES[1])))[0];
@@ -2465,17 +2465,26 @@ async function saveResume(href) {
   catch (err) { if (!err || err.code !== 'declined') window.open(href, '_blank', 'noopener'); }
 }
 $('lightbox').addEventListener('click', () => { $('lightbox').hidden = true; });
-const readNear = () => { if (!nearBoard) return; if (readable(nearBoard)) enterFocus(nearBoard); else openBoard(nearBoard.def.id); };
+const readNear = () => { const b = nearBoard || (IM.classList.contains('open') ? markB : null); if (!b) return; if (readable(b)) enterFocus(b); else openBoard(b.def.id); };
 const IM = $('interact');
-IM.addEventListener('click', readNear);
-for (const ev of ['pointerenter', 'focus']) IM.addEventListener(ev, () => IM.classList.add('open'));
-for (const ev of ['pointerleave', 'blur']) IM.addEventListener(ev, () => IM.classList.remove('open'));
+IM.addEventListener('click', () => { const b = markB; if (!b) return; if (readable(b)) enterFocus(b); else openBoard(b.def.id); });
+for (const ev of ['pointerenter', 'focus']) IM.addEventListener(ev, () => (hoverIM = true));
+for (const ev of ['pointerleave', 'blur']) IM.addEventListener(ev, () => (hoverIM = false));
 const _im = new V3();
 // keeps the marker over the thing you're near; called each frame after the camera has moved
+// The marker lies on the ground just in front of the nearest board or statue. It shows up from further off than E reaches
+// (16 m), and opens when you point at it or drive the buggy onto it.
+let markB = null, hoverIM = false;
 function placeInteract() {
-  const b = nearBoard, show = !!b && playing && !boardOpen && !focusB && !anyOverlay();
-  if (!show) { if (!IM.hidden) { IM.hidden = true; IM.classList.remove('open'); } return; }
-  _im.set(b.x, b.markY ?? b.y + 3, b.z).project(camera);
+  let b = null, bd = 16;
+  if (playing && !boardOpen && !focusB && !anyOverlay()) for (const q of BB) {
+    if (!q.mark || q.cave !== CAVE.under) continue;
+    const d = Math.hypot(car.p.x - q.mark[0], car.p.z - q.mark[2]); if (d < bd && Math.abs(car.p.y - q.mark[1]) < 6) { bd = d; b = q; }
+  }
+  if (b !== markB) { markB = b; if (b) { $('interactName').textContent = b.def.title; IM.setAttribute('aria-label', (readable(b) ? 'Read ' : 'Open ') + b.def.title); IM.hidden = true; } }
+  if (!b) { if (!IM.hidden) { IM.hidden = true; IM.classList.remove('open'); } return; }
+  IM.classList.toggle('open', hoverIM || bd < 2.8);
+  _im.set(b.mark[0], b.mark[1], b.mark[2]).project(camera);
   if (_im.z > 1 || Math.abs(_im.x) > 1.2 || Math.abs(_im.y) > 1.2) { IM.style.visibility = 'hidden'; return; }
   IM.style.visibility = ''; if (IM.hidden) IM.hidden = false;
   const x = Math.round((_im.x + 1) / 2 * innerWidth), y = Math.round((1 - _im.y) / 2 * innerHeight);
@@ -2527,7 +2536,7 @@ addEventListener('keydown', (e) => {
     else if (!['KeyW', 'KeyS', 'KeyZ', 'KeyR', 'ShiftLeft', 'ShiftRight'].includes(k)) return;
     e.preventDefault(); e.stopImmediatePropagation(); return;
   }
-  if (e.code === 'KeyE' && !e.repeat && nearBoard && playing) { e.preventDefault(); e.stopImmediatePropagation(); readNear(); }
+  if (e.code === 'KeyE' && !e.repeat && (nearBoard || markB) && playing) { e.preventDefault(); e.stopImmediatePropagation(); readNear(); }
 }, true);
 // which billboard is the buggy parked by?
 function updateBoardPrompt() {
@@ -2537,7 +2546,7 @@ function updateBoardPrompt() {
     const d = Math.hypot(car.p.x - b.x, car.p.z - b.z), reach = b.cave ? 6 : b.statue ? 11 : b.plaque ? 6.5 : 8.5;
     if (d < reach && d < bd && Math.abs(car.p.y - b.y) < (b.statue ? 7 : 4.5)) { bd = d; best = b; }
   }
-  if (best !== nearBoard) { nearBoard = best; if (best) { $('interactName').textContent = best.def.title; IM.setAttribute('aria-label', (readable(best) ? 'Read ' : 'Open ') + best.def.title); IM.hidden = true; } }
+  nearBoard = best;
   if (focusB && Math.hypot(car.p.x - focusB.x, car.p.z - focusB.z) > 16) exitFocus(true);
 }
 
