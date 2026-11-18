@@ -1,4 +1,4 @@
-# Tidewind Isle — Matteo Prado's interactive portfolio
+# Matteo Prado · Interactive Portfolio
 
 A drivable 3D island built with Three.js and Blender. Drive the buggy around the island and stop at the billboards to learn about Matteo's education, work, skills and photography.
 
