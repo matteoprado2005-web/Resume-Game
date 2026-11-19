@@ -997,7 +997,7 @@ for (let s0 = -0.5; s0 < CAVE.L - 0.5; s0 += 4) {
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 let pixelRatio = window.__testPR || Math.min(devicePixelRatio, isTouch ? 1.2 : 1.25);
-const GFX = { minPR: 0.6, maxPR: pixelRatio, step: 0 };
+const GFX = { minPR: 0.7, maxPR: pixelRatio, step: 0 };
 try { localStorage.removeItem('tidewind-graphics'); } catch (e) {}
 renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; renderer.shadowMap.autoUpdate = false;   // redrawn from frame()
@@ -1103,7 +1103,7 @@ function windPatch(mat, amount, grass = false) {
       th = min(th, 1.38);
       wp.xz += dir * hf * sin(th); wp.y = org.y + hf * cos(th) + (wp.y - org.y - hf);
       vGust = clamp(th / 1.3, 0.0, 1.0);
-      float keep = 1.0 - smoothstep(40.0, 52.0, distance(org.xz, cameraPosition.xz));
+      float keep = 1.0 - smoothstep(46.0, 60.0, distance(org.xz, cameraPosition.xz));
       wp.xyz = org.xyz + (wp.xyz - org.xyz) * keep;` : grass ? `
       // grass lies over in the gusts, the lean turning a little with the swirl so the field shows waves and eddies
       float ang = (swirl - 0.5) * 1.6;
@@ -1134,7 +1134,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261119b';
+const BUILD = '20261119c';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -1825,11 +1825,10 @@ function buildGrass() {
 }
 const GRASS_GEO = {};
 // grass past ~60 m has shrunk to nothing in the shader, so whole chunks out there aren't drawn at all
-const GRASS_IMS = []; let GRASS_FAR = 52;
+const GRASS_IMS = []; let GRASS_FAR = 60;
 function cullGrass() {
-  for (const im of PROP_IMS) { const b = im.boundingSphere; im.visible = Math.hypot(b.center.x - camera.position.x, b.center.z - camera.position.z) - b.radius < 85; }
   for (const im of GRASS_IMS) { const b = im.boundingSphere, d = Math.hypot(b.center.x - camera.position.x, b.center.z - camera.position.z);
-    im.visible = d - b.radius < GRASS_FAR; im.geometry = d - b.radius > 18 ? GRASS_GEO.far : GRASS_GEO.near; }   // chunks wholly past 18 m draw half the blades
+    im.visible = d - b.radius < GRASS_FAR; im.geometry = d - b.radius > 26 ? GRASS_GEO.far : GRASS_GEO.near; }   // chunks wholly past 26 m draw half the blades
 }
 const GRASS_STATS = {};
 
@@ -2892,7 +2891,7 @@ function physicsStep(dt) {
 }
 
 /* ============================================================ post */
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 2, depthTexture: new THREE.DepthTexture(Math.round(innerWidth * pixelRatio), Math.round(innerHeight * pixelRatio)) }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 4, depthTexture: new THREE.DepthTexture(Math.round(innerWidth * pixelRatio), Math.round(innerHeight * pixelRatio)) }));
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.4, 0.55, 1.0);
 composer.addPass(bloom);
@@ -3412,12 +3411,7 @@ function frame() {
   if (ftAcc > 2.5) {
     const avg = ftAcc / frames;
     if (avg > 1 / 38 && pixelRatio > GFX.minPR) { pixelRatio = Math.max(GFX.minPR, pixelRatio - 0.15); applyPixelRatio(); }
-    else if (avg > 1 / 34 && GFX.step < 3) {
-      GFX.step++;
-      if (GFX.step === 1) { composer.renderTarget1.samples = composer.renderTarget2.samples = 0; composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); }   // no MSAA
-      if (GFX.step === 2) { sun.shadow.mapSize.set(1024, 1024); sun.shadow.map?.dispose(); sun.shadow.map = null; }                                                  // lighter shadows
-      if (GFX.step === 3) GRASS_FAR = 40;                                                                                                                             // grass stops a little sooner
-    }
+    else if (avg > 1 / 34 && GFX.step < 1) { GFX.step++; sun.shadow.mapSize.set(1024, 1024); sun.shadow.map?.dispose(); sun.shadow.map = null; }   // still slow at the lowest resolution: lighter shadows (grass and trees stay as they are)
     else if (avg < 1 / 55 && pixelRatio < GFX.maxPR - 0.01) { pixelRatio = Math.min(GFX.maxPR, pixelRatio + 0.1); applyPixelRatio(); }   // and sharpens again when there's room
     frames = 0; ftAcc = 0;
   }
