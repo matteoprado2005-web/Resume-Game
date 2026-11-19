@@ -78,6 +78,10 @@ body { background: #2b2338; color: var(--parch); font-family: var(--body); overf
 
 #fade { position: fixed; inset: 0; background: #e9f6fb; opacity: 0; pointer-events: none; transition: opacity .35s; }
 #fade.on { opacity: 1; }
+#warp { position: fixed; inset: 0; z-index: 45; pointer-events: none; background: radial-gradient(circle at 50% 50%, #22707A 0%, #174A50 70%); display: grid; place-items: center; will-change: mask-image; }
+#warp[hidden] { display: none; }
+#warp svg { width: 84px; height: 84px; animation: warpSpin 1.6s linear infinite; filter: drop-shadow(0 6px 16px rgba(0,0,0,.35)); }
+@keyframes warpSpin { to { transform: rotate(360deg); } }
 
 /* Title screen */
 #title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 24px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); background: radial-gradient(ellipse at center, rgba(10,20,34,.15) 0%, rgba(10,20,34,.55) 75%); transition: opacity 1.2s ease; }
@@ -260,6 +264,7 @@ body.reading #touch, body.reading #region, body.reading #hint, body.reading #map
 
 <div class="hud bb" id="focusBar" hidden role="toolbar" aria-label="Billboard slides"><button id="fbPrev" type="button" aria-label="Previous slide">◀</button><span id="fbCount" aria-live="polite"></span><button id="fbNext" type="button" aria-label="Next slide">▶</button><span id="fbActs"></span><button id="fbExit" type="button"><kbd>E</kbd>Back to the island ✕</button></div>
 <div id="fade"></div>
+<div id="warp" hidden aria-hidden="true"><svg viewBox="0 0 64 64"><rect x="11" y="11" width="42" height="42" rx="9" transform="rotate(45 32 32)" fill="#F0CD72"/><rect x="15.5" y="15.5" width="33" height="33" rx="6" transform="rotate(45 32 32)" fill="#1F5F66"/><path d="M32 13 Q34.6 29.4 51 32 Q34.6 34.6 32 51 Q29.4 34.6 13 32 Q29.4 29.4 32 13 Z" fill="#F0CD72"/><circle cx="32" cy="32" r="2.6" fill="#1F5F66"/></svg></div>
 <div id="board" class="bb" hidden role="dialog" aria-modal="true" aria-labelledby="boardName">
   <div class="card">
     <div class="head"><h2 id="boardName">Location</h2><button class="x" id="boardX" type="button" aria-label="Close">✕</button></div>
@@ -1134,7 +1139,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261119c';
+const BUILD = '20261119e';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -2426,10 +2431,91 @@ function applyFocus(dt) {
   if (FOCUS.k === 0) FOCUS.from = null;
 }
 function goTo(id, read) {
-  const b = BB.find((q) => q.def.id === id); if (!b) return;
+  const b = BB.find((q) => q.def.id === id); if (!b || WARP.on) return;
   closeBoard(); exitFocus(true); if (!playing) start();
-  $('fade').classList.add('on');
-  setTimeout(() => { CAVE.under = !!b.spawn.cave; placeCar(b.spawn.x, b.spawn.z, b.spawn.yaw, b.spawn.y); camTarget.copy(car.p); cam.yawT = cam.yaw = Math.atan2(-Math.cos(b.spawn.yaw), Math.sin(b.spawn.yaw)); setTimeout(() => $('fade').classList.remove('on'), 120); if (read) { nearBoard = b; enterFocus(b); } }, 380);
+  const instant = (!!window.__testLights && !window.__forceWarp) || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (instant) { $('fade').classList.add('on'); setTimeout(() => { warpPlace(b); setTimeout(() => $('fade').classList.remove('on'), 120); if (read) { nearBoard = b; enterFocus(b); } }, 380); return; }
+  startWarp(b, read);
+}
+function warpPlace(b) {
+  CAVE.under = !!b.spawn.cave; placeCar(b.spawn.x, b.spawn.z, b.spawn.yaw, b.spawn.y); camTarget.copy(car.p);
+  cam.yawT = cam.yaw = Math.atan2(-Math.cos(b.spawn.yaw), Math.sin(b.spawn.yaw));
+}
+/* Teleport: the B diamond opens under the buggy, its spark spins up and pulls the buggy down into the ground; a soft teal
+   sweep crosses the screen from the top-left corner to the bottom-right; when it clears, the diamond is already spinning at
+   the destination and lifts the buggy back up, then folds away. Everything runs off the frame clock, so it stays smooth. */
+const WARP = { on: false, t: 0, b: null, read: false, moved: false, g: null, spark: null, base: null, ang: 0, spin: 0 };
+function portalTex(part) {
+  const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d'); g.translate(256, 256);
+  if (part === 'base') {
+    const glow = g.createRadialGradient(0, 0, 120, 0, 0, 250); glow.addColorStop(0, 'rgba(240,205,114,0.55)'); glow.addColorStop(1, 'rgba(240,205,114,0)');
+    g.fillStyle = glow; g.fillRect(-256, -256, 512, 512);
+    g.rotate(Math.PI / 4); const d = (r, rr) => { g.beginPath(); g.roundRect(-r, -r, r * 2, r * 2, rr); };
+    d(150, 36); g.fillStyle = '#F0CD72'; g.fill(); d(126, 26); g.fillStyle = '#1F5F66'; g.fill();
+  } else {
+    g.fillStyle = '#F0CD72'; g.beginPath(); g.moveTo(0, -116); g.quadraticCurveTo(18, -18, 116, 0); g.quadraticCurveTo(18, 18, 0, 116); g.quadraticCurveTo(-18, 18, -116, 0); g.quadraticCurveTo(-18, -18, 0, -116); g.fill();
+    g.fillStyle = '#1F5F66'; g.beginPath(); g.arc(0, 0, 19, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+function buildWarp() {
+  const geo = new THREE.PlaneGeometry(9, 9); geo.rotateX(-Math.PI / 2);   // the diamond spans ~7.5 m: twice the buggy's length
+  const mk = (map, o) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: o, polygonOffsetUnits: o });
+  WARP.g = new THREE.Group(); WARP.g.visible = false; scene.add(WARP.g);
+  WARP.base = new THREE.Mesh(geo, mk(portalTex('base'), -3)); WARP.base.renderOrder = 3; WARP.g.add(WARP.base);
+  WARP.spark = new THREE.Mesh(geo, mk(portalTex('spark'), -4)); WARP.spark.renderOrder = 4; WARP.spark.position.y = 0.01; WARP.g.add(WARP.spark);
+}
+// the portal lies just above the highest ground under it, so the coarse terrain mesh never hides part of it
+function portalY(x, z) { let h = groundAt(x, z); for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; h = Math.max(h, groundAt(x + Math.cos(a) * 1.8, z + Math.sin(a) * 1.8), groundAt(x + Math.cos(a) * 3.6, z + Math.sin(a) * 3.6) - 0.25); } return h + 0.12; }
+const _wd = new V3();
+function faceWarp() { _wd.set(1, 0, 0).applyQuaternion(car.q); WARP.g.rotation.y = Math.atan2(_wd.x, _wd.z); }   // a tip points the way the buggy faces (and the camera looks), so it reads as a diamond
+function startWarp(b, read) {
+  if (!WARP.g) buildWarp();
+  Object.assign(WARP, { on: true, t: 0, b, read, moved: false, ang: 0, spin: 0 });
+  for (const k in input) input[k] = 0;
+  WARP.g.position.set(car.p.x, portalY(car.p.x, car.p.z), car.p.z); WARP.g.visible = true; WARP.g.scale.setScalar(0.001); faceWarp();
+  $('warp').hidden = false; setWipe('in', 0);
+}
+const ease = { out: (x) => 1 - (1 - x) ** 3, in: (x) => x * x * x, io: (x) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2), back: (x) => 1 + 2.4 * (x - 1) ** 3 + 1.4 * (x - 1) ** 2 };
+const seg = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
+function setWipe(dir, p) {   // a soft-edged diagonal sweep, top-left to bottom-right
+  const soft = 22, a = -soft + p * (100 + soft), b = a + soft, el = $('warp');
+  const m = dir === 'in' ? `linear-gradient(135deg, #000 ${a}%, transparent ${b}%)` : `linear-gradient(135deg, transparent ${a}%, #000 ${b}%)`;
+  el.style.webkitMaskImage = el.style.maskImage = m;
+}
+// runs every frame after the buggy has been placed; only touches what you see (the physics stand still meanwhile)
+function updateWarp(dt) {
+  if (!WARP.on) return;
+  const W = WARP; W.t += Math.min(dt, 1 / 30); const t = W.t;
+  for (const k in input) input[k] = 0;
+  // the diamond: opens with a little overshoot, spark spins faster and faster while it pulls, then eases off as it lifts
+  const open = t < 1.4 ? ease.back(seg(t, 0, 0.42)) : (t < 2.3 ? 1 : 1 - ease.in(seg(t, 2.3, 2.75)));
+  W.g.scale.setScalar(Math.max(0.001, open)); faceWarp();
+  const want = t < 1.4 ? 2 + 16 * ease.in(seg(t, 0.25, 1.2)) : 14 * (1 - ease.out(seg(t, 1.5, 2.6))) + 1.5;
+  W.spin += (want - W.spin) * Math.min(1, dt * 6); W.ang += W.spin * dt; W.spark.rotation.y = W.ang;
+  W.base.material.opacity = W.spark.material.opacity = t > 2.3 ? 1 - seg(t, 2.45, 2.75) : 1;
+  // the buggy: pulled down and round into the ground, then lifted back out at the other end
+  let sink;
+  if (t < 1.4) sink = ease.in(seg(t, 0.38, 1.15));
+  else sink = 1 - ease.out(seg(t, 1.62, 2.4));
+  const off = -1.9 * sink, sc = 1 - 0.3 * sink, twist = (t < 1.4 ? 1 : -1) * sink * Math.PI * 0.9;
+  carVisual.position.y += off; carVisual.scale.setScalar(sc); carVisual.rotateOnWorldAxis(AY, twist);
+  wheelMeshes.forEach((w) => { w.grp.position.sub(car.p).applyAxisAngle(AY, twist).multiplyScalar(sc).add(car.p); w.grp.position.y += off; w.grp.rotateOnWorldAxis(AY, twist); w.grp.scale.setScalar(sc); });
+  if (carBlob) carBlob.material.opacity *= 1 - sink;
+  // the sweep: covers from the top-left, the move happens behind it, then it clears the same way
+  if (t < 1.4) setWipe('in', ease.io(seg(t, 0.85, 1.38)));
+  else setWipe('out', ease.io(seg(t, 1.52, 2.05)));
+  if (t >= 1.4 && !W.moved) {
+    W.moved = true; warpPlace(W.b);
+    for (let i = 0; i < 150; i++) physicsStep(1 / 120);           // let it settle onto its wheels behind the sweep, so nothing drops afterwards
+    car.v.set(0, 0, 0); car.w.set(0, 0, 0); prevP.copy(car.p); prevQ.copy(car.q); acc = 0;
+    W.g.position.set(car.p.x, portalY(car.p.x, car.p.z), car.p.z);
+    renderer.shadowMap.needsUpdate = true;
+  }
+  if (t >= 2.78) {
+    W.on = false; W.g.visible = false; $('warp').hidden = true; carVisual.scale.setScalar(1); wheelMeshes.forEach((w) => w.grp.scale.setScalar(1));
+    if (W.read) { nearBoard = W.b; enterFocus(W.b); }
+  }
 }
 $('boardX').addEventListener('click', closeBoard);
 $('board').addEventListener('click', (e) => {
@@ -3352,7 +3438,7 @@ async function boot() {
   await step('', 100);
   $('start').disabled = false; $('start').focus();
   window.__ready = true;
-  window.__dbg = { setScenePR: (v) => { pixelRatio = v; applyPixelRatio(); }, DECKS, deckAt, pathDist, LANDMARKS, slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
+  window.__dbg = { get WARP() { return WARP; }, setScenePR: (v) => { pixelRatio = v; applyPixelRatio(); }, DECKS, deckAt, pathDist, LANDMARKS, slideTo, drawSlide, slideTick, GRASS_STATS, renderer, pathDist, colGrid, unlock, ACH, achTick, MUSIC, music, openBoard, A, CLIFF_STATS, CL, THREE, updateCamera, rawHeight, RIVER, BRIDGE, DAY, SKY_SUN, SKY_MOON, nearColliders, WALLS, scene, world, caveAnim, camera, get introT() { return introT; }, set introT(v) { introT = v; }, get FX() { return GRID_STATS_FX; }, H, CL, PD, NOGO, N, CELL, PADS, CAVE, caveFloor, caveDeckY, caveLocal, GRID_STATS, slopeNY, sun, hemi, music, PATHS, heightAt, deckAt, A, car, placeCar, ORBS, DECKS, BRIDGE, cam, physicsStep, input, loop, groundAt, carYaw, drivable, resetToBridge, resetToSpawn, TORCHES, BB, BOARDS, openBoard, closeBoard, goTo, get SPAWN() { return SPAWN; }, get nearBoard() { return nearBoard; }, enterFocus, exitFocus, focusStep, runAction, FOCUS, get focusB() { return focusB; } };
 }
 
 const clock = new THREE.Clock();
@@ -3370,7 +3456,7 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime; uTime.value = window.__tOverride ?? t;
   if (window.__ready) {
     if (focusB) for (const k in input) input[k] = 0;
-    if (playing && !boardOpen) { acc += dt; let n = 0; while (acc >= 1 / 120 && n < 8) { prevP.copy(car.p); prevQ.copy(car.q); physicsStep(1 / 120); acc -= 1 / 120; n++; } if (n === 8) acc = 0; gameLogic(dt, t); }
+    if (playing && !boardOpen && !WARP.on) { acc += dt; let n = 0; while (acc >= 1 / 120 && n < 8) { prevP.copy(car.p); prevQ.copy(car.q); physicsStep(1 / 120); acc -= 1 / 120; n++; } if (n === 8) acc = 0; gameLogic(dt, t); }
     // draw the buggy between the last two physics steps, so it glides instead of stepping when the frame rate wanders
     const al = clamp(acc * 120, 0, 1), far = prevP.distanceToSquared(car.p) > 4;
     if (far || respawning > 0) { carVisual.position.copy(car.p); carVisual.quaternion.copy(car.q); }
@@ -3378,7 +3464,7 @@ function frame() {
     const visOff = _vOff.subVectors(carVisual.position, car.p);
     car.wheels.forEach((wh, i) => { const g = wheelMeshes[i].grp; g.position.copy(wh.world).add(visOff); g.quaternion.copy(car.q).multiply(new THREE.Quaternion().setFromAxisAngle(AY, wh.front ? car.steer : 0)).multiply(new THREE.Quaternion().setFromAxisAngle(AZ, -wh.spin)); });
     uCar.value.copy(car.p);
-    placeCarBlob();
+    placeCarBlob(); updateWarp(dt);
     for (const b of boats) { b.m.position.y = 0.02 + Math.sin(t * 1.4 + b.ph) * 0.07; b.m.rotation.set(Math.sin(t * 1.1 + b.ph) * 0.03, b.ry, Math.sin(t * 1.3 + b.ph) * 0.04); }
     updateParticles(dt); updateStreaks(dt, uTime.value);
     for (const f of animated) f(dt, t);
