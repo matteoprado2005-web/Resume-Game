@@ -310,8 +310,8 @@ body.reading #touch, body.reading #region, body.reading #hint, body.reading #map
 
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  "three": "./lib/three/three.module.js",
+  "three/addons/": "./lib/three/addons/"
 } }
 </script>
 <script type="module">
@@ -997,7 +997,7 @@ for (let s0 = -0.5; s0 < CAVE.L - 0.5; s0 += 4) {
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 let pixelRatio = window.__testPR || Math.min(devicePixelRatio, isTouch ? 1.2 : 1.25);
-const GFX = { minPR: 0.7, maxPR: pixelRatio };
+const GFX = { minPR: 0.6, maxPR: pixelRatio, step: 0 };
 try { localStorage.removeItem('tidewind-graphics'); } catch (e) {}
 renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; renderer.shadowMap.autoUpdate = false;   // redrawn from frame()
@@ -1079,6 +1079,8 @@ function windPatch(mat, amount, grass = false) {
       #endif
       org = modelMatrix * org;
       float hf = max(wp.y - org.y, 0.0);
+      vGust = 0.0;
+      if (hf > 0.002) {   // roots don't move: two of every blade's three corners skip all the wind maths
       // one wind for the whole island: it swings slowly, and gusts (big soft patches of noise) roll across the ground with it
       float wt = mod(uTime, 1800.0), wa = 0.55 + 0.4 * sin(wt * 0.045);
       vec2 W = vec2(cos(wa), sin(wa));
@@ -1101,7 +1103,7 @@ function windPatch(mat, amount, grass = false) {
       th = min(th, 1.38);
       wp.xz += dir * hf * sin(th); wp.y = org.y + hf * cos(th) + (wp.y - org.y - hf);
       vGust = clamp(th / 1.3, 0.0, 1.0);
-      float keep = 1.0 - smoothstep(46.0, 60.0, distance(org.xz, cameraPosition.xz));
+      float keep = 1.0 - smoothstep(40.0, 52.0, distance(org.xz, cameraPosition.xz));
       wp.xyz = org.xyz + (wp.xyz - org.xyz) * keep;` : grass ? `
       // grass lies over in the gusts, the lean turning a little with the swirl so the field shows waves and eddies
       float ang = (swirl - 0.5) * 1.6;
@@ -1118,6 +1120,7 @@ function windPatch(mat, amount, grass = false) {
       float sw = 0.45 + 0.9 * gust + 0.45 * ripple + 0.35 * sin(uTime * 1.6 + org.x * 0.21 + org.z * 0.13) + 0.15 * sin(uTime * 3.1 + org.x * 0.5 + wp.y);
       vec2 wd = W + vec2(-W.y, W.x) * 0.25 * sin(uTime * 0.9 + org.z * 0.3);
       wp.xz += wd * sw * (hf * hf * ${amount.toFixed(4)} + hf * ${(amount * 6).toFixed(4)});`}
+      }
       vec4 mvPosition = viewMatrix * wp;
       gl_Position = projectionMatrix * mvPosition;`);
     // a faint sheen where the gust has the blades lying over
@@ -1131,7 +1134,7 @@ function windPatch(mat, amount, grass = false) {
 const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
 // models ship as compressed binary GLB (meshopt geometry, webp textures)
 // bump BUILD whenever assets change: browsers keep assets/ for a week, so a new page with an old cached model would break
-const BUILD = '20261118e';
+const BUILD = '20261119b';
 async function loadModel(url) {
   const res = await fetch(url + '?v=' + BUILD); if (!res.ok) throw new Error('Could not load ' + url + ' (' + res.status + ')');
   return loader.parseAsync(await res.arrayBuffer(), '');
@@ -1214,10 +1217,12 @@ function instanceAsset(name, list, { shadow = true, chunk = 70 } = {}) {
       im.castShadow = shadow; im.receiveShadow = true;
       im.computeBoundingSphere(); im.frustumCulled = true; im.userData.kit = name; im.userData.gkey = gkey;
       if (CLEARABLE_RE.test(name)) { im.userData.items = items; im.userData.asset = name; CLEAR_IMS.push(im); for (const it of items) { const k = Math.floor(it.x / 8) * 1000 + Math.floor(it.z / 8); if (!CLEAR_GRID.has(k)) CLEAR_GRID.set(k, []); CLEAR_GRID.get(k).push(it); } }
+      if (/^(bush|rock_flat|rock_boulder|rock_pebble|tiki_torch|tribal_pillar|flower|fern)/.test(name)) PROP_IMS.push(im);   // small things: not drawn far off
       world.add(im);
     }
   }
 }
+const PROP_IMS = [];
 const BATCH = {};
 function batch(name, x, y, z, ry = 0, s = 1) { (BATCH[name] ||= []).push({ x, y, z, ry, s }); }
 function flushBatches() { for (const [n, l] of Object.entries(BATCH)) instanceAsset(n, l, { chunk: 1000, shadow: !/crate|barrel|lantern|fence/.test(n) }); }   // small props: their shadows are a few pixels
@@ -1820,10 +1825,11 @@ function buildGrass() {
 }
 const GRASS_GEO = {};
 // grass past ~60 m has shrunk to nothing in the shader, so whole chunks out there aren't drawn at all
-const GRASS_IMS = [];
+const GRASS_IMS = []; let GRASS_FAR = 52;
 function cullGrass() {
+  for (const im of PROP_IMS) { const b = im.boundingSphere; im.visible = Math.hypot(b.center.x - camera.position.x, b.center.z - camera.position.z) - b.radius < 85; }
   for (const im of GRASS_IMS) { const b = im.boundingSphere, d = Math.hypot(b.center.x - camera.position.x, b.center.z - camera.position.z);
-    im.visible = d - b.radius < 60; im.geometry = d - b.radius > 26 ? GRASS_GEO.far : GRASS_GEO.near; }   // chunks wholly past 26 m draw half the blades
+    im.visible = d - b.radius < GRASS_FAR; im.geometry = d - b.radius > 18 ? GRASS_GEO.far : GRASS_GEO.near; }   // chunks wholly past 18 m draw half the blades
 }
 const GRASS_STATS = {};
 
@@ -1834,17 +1840,18 @@ function buildStreaks() {
   for (let i = 0; i < 6; i++) {
     const u = { uO: { value: new V3() }, uDir: { value: new THREE.Vector2(1, 0) }, uLen: { value: 16 }, uProg: { value: 0 }, uAmp: { value: 1 }, uPh: { value: 0 }, uA: { value: 0.5 } };
     const m = new THREE.ShaderMaterial({ uniforms: u, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
-      vertexShader: `uniform vec3 uO; uniform vec2 uDir; uniform float uLen, uProg, uAmp, uPh; varying float vS;
+      vertexShader: `uniform vec3 uO; uniform vec2 uDir; uniform float uLen, uProg, uAmp, uPh; varying float vS, vCam;
         vec3 path(float s) { float a = s * uLen; vec2 pr = vec2(-uDir.y, uDir.x);
           vec2 xz = uO.xz + uDir * a + pr * sin(a * 0.33 + uPh) * uAmp;
           return vec3(xz.x, uO.y + sin(a * 0.21 + uPh * 1.7) * 0.6 + sin(a * 0.9 + uPh) * 0.12, xz.y); }
         void main() { float s = position.x; vS = s; vec3 p = path(s), t = normalize(path(s + 0.01) - p);
           vec3 side = normalize(cross(t, normalize(cameraPosition - p)));
-          p += side * position.y * 0.07;
+          p += side * position.y * 0.07; vCam = distance(cameraPosition, p);
           gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0); }`,
-      fragmentShader: `uniform float uProg, uA; varying float vS;
+      fragmentShader: `uniform float uProg, uA; varying float vS, vCam;
         void main() { float head = uProg * 1.35, tail = head - 0.35;
           float a = smoothstep(tail, tail + 0.2, vS) * (1.0 - smoothstep(head - 0.04, head, vS));
+          a *= smoothstep(7.0, 12.0, vCam);   // never right up against the camera, where a streak would fill the view
           if (a < 0.01) discard; gl_FragColor = vec4(1.0, 1.0, 1.0, a * uA); }` });
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5; mesh.visible = false; scene.add(mesh);
     STREAKS.push({ mesh, u, t: 0, dur: 1, wait: i * 0.6 });
@@ -1855,7 +1862,7 @@ function updateStreaks(dt, t) {
   for (const k of STREAKS) {
     if (k.wait > 0) { k.wait -= dt; k.mesh.visible = false; continue; }
     if (k.t === 0) {   // spawn upwind of somewhere near the camera's focus, so it blows across the view
-      const r = 4 + Math.random() * 12, a = Math.random() * Math.PI * 2, L = 12 + Math.random() * 8;
+      const r = 8 + Math.random() * 14, a = Math.random() * Math.PI * 2, L = 12 + Math.random() * 8;
       const cx = camTarget.x + Math.cos(a) * r - Wx * L * 0.5, cz = camTarget.z + Math.sin(a) * r - Wz * L * 0.5;
       const gy = Math.max(groundAt(cx, cz), 0.5);
       k.u.uO.value.set(cx, gy + 1.0 + Math.random() * 2.2, cz); k.u.uDir.value.set(Wx, Wz); k.u.uLen.value = L;
@@ -2700,11 +2707,25 @@ const REST = 0.48, TRAVEL = 0.34, RADIUS = 0.4, K = 36, CDAMP = 4.2, MU = 1.25, 
 const INV_I = new V3(1 / 0.75, 1 / 0.8, 1 / 0.95);
 const AX = new V3(1, 0, 0), AY = new V3(0, 1, 0), AZ = new V3(0, 0, 1);
 let carVisual, wheelMeshes = [], headlights = [];
+// a soft dark oval under the buggy that follows it every frame
+let carBlob = null; const _bq = new THREE.Quaternion(), _bf = new V3();
+function placeCarBlob() {
+  if (!carBlob) {
+    const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+    gr.addColorStop(0, 'rgba(0,0,0,0.62)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.42)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c); const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
+    carBlob = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    carBlob.renderOrder = 2; carBlob.scale.set(4.1, 1, 2.7); scene.add(carBlob);
+  }
+  const p = carVisual.position; _bf.set(1, 0, 0).applyQuaternion(carVisual.quaternion);
+  carBlob.position.set(p.x, groundAt(p.x, p.z) + 0.05, p.z); carBlob.rotation.set(0, Math.atan2(-_bf.z, _bf.x), 0);
+  const lift = clamp((p.y - groundAt(p.x, p.z) - 0.9) / 3, 0, 1); carBlob.material.opacity = 1 - lift * 0.8; carBlob.visible = carVisual.visible;
+}
 
 function buildCar() {
   carVisual = new THREE.Group();
   const body = A.jeep_body.scene.clone(true); body.position.y = -0.73;
-  body.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  body.traverse((m) => { if (m.isMesh) { m.castShadow = false; m.receiveShadow = true; } });   // the buggy's shadow is a soft blob (see carBlob), so the sun's shadow map can refresh less often
   carVisual.add(body);
   { // one beam from between the two lamps, as wide as the pair was
     const s = new THREE.SpotLight('#ffe2b0', 72, 34, 0.68, 0.6, 1.3); s.position.set(1.42, 0.1, 0); s.target.position.set(8, -1.2, 0);
@@ -2715,7 +2736,7 @@ function buildCar() {
     const grp = new THREE.Group(); const w = A.jeep_wheel.scene.clone(true);
     w.traverse((m) => { if (m.isMesh) m.castShadow = true; });
     if (car.wheels[i].lp.z < 0) w.scale.z = -1;
-    grp.add(w); scene.add(grp); wheelMeshes.push({ grp });
+    w.traverse((m) => { if (m.isMesh) m.castShadow = false; }); grp.add(w); scene.add(grp); wheelMeshes.push({ grp });
   }
 }
 
@@ -2871,7 +2892,7 @@ function physicsStep(dt) {
 }
 
 /* ============================================================ post */
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 4, depthTexture: new THREE.DepthTexture(Math.round(innerWidth * pixelRatio), Math.round(innerHeight * pixelRatio)) }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 2, depthTexture: new THREE.DepthTexture(Math.round(innerWidth * pixelRatio), Math.round(innerHeight * pixelRatio)) }));
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.4, 0.55, 1.0);
 composer.addPass(bloom);
@@ -2880,6 +2901,7 @@ function applyPixelRatio() { composer.setPixelRatio(pixelRatio); composer.setSiz
    section sign and marker has a twin, drawn straight onto the full-resolution screen after the scene, which hides itself
    wherever the scene's depth says something stands in front of it. */
 const SHARP = { depth: { value: null }, res: { value: new THREE.Vector2(1, 1) }, nf: { value: new THREE.Vector2(0.1, 1000) } };
+const sharpScene = new THREE.Scene(), SHARP_TWINS = [];
 function sharpTwin(mesh) {
   const m = mesh.material.clone(), key = mesh.material.type;
   m.onBeforeCompile = (sh) => {
@@ -2888,16 +2910,21 @@ function sharpTwin(mesh) {
       sh.fragmentShader.replace('void main() {', 'void main() {\n  { float fz = sLin(gl_FragCoord.z); if (fz > sLin(texture2D(uSD, gl_FragCoord.xy / uSRes).x) + 0.05 + fz * 0.006) discard; }');
   };
   m.customProgramCacheKey = () => 'sharp' + key;
-  const t = new THREE.Mesh(mesh.geometry, m); t.layers.set(3); t.renderOrder = mesh.renderOrder + 1; t.frustumCulled = mesh.frustumCulled; mesh.add(t);
+  const t = new THREE.Mesh(mesh.geometry, m); t.renderOrder = mesh.renderOrder + 1; t.matrixAutoUpdate = false; t.userData.src = mesh;
+  sharpScene.add(t); SHARP_TWINS.push(t);
   return t;
 }
 function renderSharp(rt) {
   if (!rt.depthTexture || window.__noSharp) return;
   SHARP.depth.value = rt.depthTexture; renderer.getDrawingBufferSize(SHARP.res.value); SHARP.nf.value.set(camera.near, camera.far);
-  const bg = scene.background, ac = renderer.autoClear, mask = camera.layers.mask;
-  scene.background = null; renderer.autoClear = false; camera.layers.set(3); renderer.setRenderTarget(null);
-  renderer.render(scene, camera);
-  camera.layers.mask = mask; renderer.autoClear = ac; scene.background = bg;
+  for (const t of SHARP_TWINS) {   // follow the original: same place, and shown only when it (and everything above it) is
+    const o = t.userData.src; let v = true; for (let p = o; p; p = p.parent) if (!p.visible) { v = false; break; }
+    t.visible = v; if (v) { t.matrix.copy(o.matrixWorld); t.matrixWorld.copy(o.matrixWorld); }
+  }
+  sharpScene.fog = scene.fog;
+  const ac = renderer.autoClear; renderer.autoClear = false; renderer.setRenderTarget(null);
+  renderer.render(sharpScene, camera);
+  renderer.autoClear = ac;
 }
 const grade = new ShaderPass({
   uniforms: { tDiffuse: { value: null } },
@@ -3352,6 +3379,7 @@ function frame() {
     const visOff = _vOff.subVectors(carVisual.position, car.p);
     car.wheels.forEach((wh, i) => { const g = wheelMeshes[i].grp; g.position.copy(wh.world).add(visOff); g.quaternion.copy(car.q).multiply(new THREE.Quaternion().setFromAxisAngle(AY, wh.front ? car.steer : 0)).multiply(new THREE.Quaternion().setFromAxisAngle(AZ, -wh.spin)); });
     uCar.value.copy(car.p);
+    placeCarBlob();
     for (const b of boats) { b.m.position.y = 0.02 + Math.sin(t * 1.4 + b.ph) * 0.07; b.m.rotation.set(Math.sin(t * 1.1 + b.ph) * 0.03, b.ry, Math.sin(t * 1.3 + b.ph) * 0.04); }
     updateParticles(dt); updateStreaks(dt, uTime.value);
     for (const f of animated) f(dt, t);
@@ -3364,12 +3392,12 @@ function frame() {
   caveLighting(dt);
   const st = playing ? camTarget : _tmp.set(0, 0, 0);
   const R = playing ? 42 : 85; if (sun.shadow.camera.right !== R) { Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R }); sun.shadow.camera.updateProjectionMatrix(); renderer.shadowMap.needsUpdate = true; }
-  const texel = 2 * R / 1536; const sx = Math.round(st.x / texel) * texel, sz = Math.round(st.z / texel) * texel;
+  const texel = 2 * R / sun.shadow.mapSize.x; const sx = Math.round(st.x / texel) * texel, sz = Math.round(st.z / texel) * texel;
   sun.position.set(sx + SUN_DIR.x * 150, st.y + SUN_DIR.y * 150, sz + SUN_DIR.z * 150); sun.target.position.set(sx, st.y, sz);
   // the shadow map is the costliest pass after the scene itself. While the buggy is parked (or you're reading a board) nothing near
   // the camera moves fast, so it redraws on every other frame; when driving it redraws every frame so the buggy's shadow never trails
-  shadowTick ^= 1; if (shadowTick || window.__camOverride || car.v.lengthSq() > 2.25 || FOCUS.k > 0 && FOCUS.k < 1) renderer.shadowMap.needsUpdate = true;
-  if (GRASS_IMS.length) cullGrass();   // after the camera has its final place for this frame
+  shadowTick = (shadowTick + 1) % 3; if (!shadowTick || window.__camOverride || (FOCUS.k > 0 && FOCUS.k < 1)) renderer.shadowMap.needsUpdate = true;   // the island's shadows hold still, so every third frame is plenty
+  if (GRASS_IMS.length || PROP_IMS.length) cullGrass();   // after the camera has its final place for this frame
   if (MARKS.length) updateMarks(dt);
   if (window.__diag || DEBUG) { renderer.info.autoReset = false; renderer.info.reset(); }
   const t0 = DEBUG ? performance.now() : 0;
@@ -3384,6 +3412,12 @@ function frame() {
   if (ftAcc > 2.5) {
     const avg = ftAcc / frames;
     if (avg > 1 / 38 && pixelRatio > GFX.minPR) { pixelRatio = Math.max(GFX.minPR, pixelRatio - 0.15); applyPixelRatio(); }
+    else if (avg > 1 / 34 && GFX.step < 3) {
+      GFX.step++;
+      if (GFX.step === 1) { composer.renderTarget1.samples = composer.renderTarget2.samples = 0; composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); }   // no MSAA
+      if (GFX.step === 2) { sun.shadow.mapSize.set(1024, 1024); sun.shadow.map?.dispose(); sun.shadow.map = null; }                                                  // lighter shadows
+      if (GFX.step === 3) GRASS_FAR = 40;                                                                                                                             // grass stops a little sooner
+    }
     else if (avg < 1 / 55 && pixelRatio < GFX.maxPR - 0.01) { pixelRatio = Math.min(GFX.maxPR, pixelRatio + 0.1); applyPixelRatio(); }   // and sharpens again when there's room
     frames = 0; ftAcc = 0;
   }
